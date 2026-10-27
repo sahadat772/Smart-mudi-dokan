@@ -1,0 +1,6 @@
+{
+  "name": "Smart Mudi Manager",
+  "description": "স্মার্ট মুদি ম্যানেজার — মুদি দোকানের বিক্রয় কেন্দ্র (POS), স্টক হিসাব, বাকি খাতা ও লাভ-ক্ষতির আধুনিক ওয়েব সফটওয়্যার।",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
