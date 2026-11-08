@@ -18,6 +18,10 @@ interface PurchasesPageProps {
   suppliers: Supplier[];
   products: Product[];
   currentRole: UserRole;
+  permissions?: {
+    view: boolean;
+    manage: boolean;
+  };
   onAddSupplier: (supplier: Supplier) => void;
   onAddPurchase: (purchase: Purchase) => void;
 }
@@ -26,6 +30,7 @@ export const PurchasesPage: React.FC<PurchasesPageProps> = ({
   suppliers,
   products,
   currentRole,
+  permissions,
   onAddSupplier,
   onAddPurchase,
 }) => {
@@ -34,6 +39,7 @@ export const PurchasesPage: React.FC<PurchasesPageProps> = ({
   const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(
     suppliers[0] || null
   );
+  const canManagePurchases = currentRole === 'owner' || permissions?.manage;
 
   // New purchase entry form
   const [invoiceNo, setInvoiceNo] = useState(`CHALAN-${Date.now().toString().slice(-5)}`);
@@ -60,6 +66,7 @@ export const PurchasesPage: React.FC<PurchasesPageProps> = ({
 
   const handleCreateSupplier = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canManagePurchases) return;
     if (!suppCompanyName) return;
 
     const newSupplier: Supplier = {
@@ -85,6 +92,7 @@ export const PurchasesPage: React.FC<PurchasesPageProps> = ({
 
   const handleSavePurchase = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canManagePurchases) return;
     const supp = suppliers.find((s) => s.id === purchaseSupplierId);
     const prod = products.find((p) => p.id === selectedProductId);
     if (!supp || !prod) return;
@@ -133,6 +141,7 @@ export const PurchasesPage: React.FC<PurchasesPageProps> = ({
         <div className="flex items-center gap-2">
           <button
             onClick={() => setIsPurchaseModalOpen(true)}
+            disabled={!canManagePurchases}
             className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
           >
             <Plus className="w-4 h-4" />
@@ -140,6 +149,7 @@ export const PurchasesPage: React.FC<PurchasesPageProps> = ({
           </button>
           <button
             onClick={() => setIsAddSupplierModalOpen(true)}
+            disabled={!canManagePurchases}
             className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
           >
             <Building className="w-4 h-4" />
@@ -255,6 +265,7 @@ export const PurchasesPage: React.FC<PurchasesPageProps> = ({
                 </div>
                 <button
                   onClick={() => alert('Phase 1 ডেমো: মহাজন পাওনা পরিশোধের ভাউচার এন্ট্রি পরবর্তী ধাপে ডাটাবেসে সেভ হবে।')}
+                  disabled={!canManagePurchases}
                   className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-semibold cursor-pointer"
                 >
                   দেনা পরিশোধ করুন
@@ -446,6 +457,7 @@ export const PurchasesPage: React.FC<PurchasesPageProps> = ({
             </button>
             <button
               type="submit"
+              disabled={!canManagePurchases}
               className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs cursor-pointer"
             >
               চালান সংরক্ষণ ও স্টক বৃদ্ধি (ডেমো)
@@ -527,6 +539,7 @@ export const PurchasesPage: React.FC<PurchasesPageProps> = ({
             </button>
             <button
               type="submit"
+              disabled={!canManagePurchases}
               className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs cursor-pointer"
             >
               সংরক্ষণ করুন (ডেমো)

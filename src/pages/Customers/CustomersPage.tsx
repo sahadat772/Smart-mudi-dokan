@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState } from "react";
 import {
   Users,
   Search,
@@ -11,14 +11,18 @@ import {
   AlertCircle,
   FileText,
   BadgeAlert,
-} from 'lucide-react';
-import { Customer, DueCollection, PaymentMethod, UserRole } from '../../types';
-import { Modal } from '../../components/common/Modal';
+} from "lucide-react";
+import { Customer, DueCollection, PaymentMethod, UserRole } from "../../types";
+import { Modal } from "../../components/common/Modal";
 
 interface CustomersPageProps {
   customers: Customer[];
   dueCollections: DueCollection[];
   currentRole: UserRole;
+  permissions?: {
+    view: boolean;
+    manage: boolean;
+  };
   onAddCustomer: (customer: Customer) => void;
   onCollectDue: (collection: DueCollection) => void;
 }
@@ -27,45 +31,54 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
   customers,
   dueCollections,
   currentRole,
+  permissions,
   onAddCustomer,
   onCollectDue,
 }) => {
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState("");
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(
-    customers[0] || null
+    customers[0] || null,
   );
   const [isAddCustomerModalOpen, setIsAddCustomerModalOpen] = useState(false);
   const [isCollectModalOpen, setIsCollectModalOpen] = useState(false);
+  const canManageCustomers = currentRole === "owner" || permissions?.manage;
 
   // Add customer form
-  const [newCustName, setNewCustName] = useState('');
-  const [newCustPhone, setNewCustPhone] = useState('');
-  const [newCustAddress, setNewCustAddress] = useState('');
+  const [newCustName, setNewCustName] = useState("");
+  const [newCustPhone, setNewCustPhone] = useState("");
+  const [newCustAddress, setNewCustAddress] = useState("");
   const [initialDue, setInitialDue] = useState<number>(0);
 
   // Due collection form
   const [collectionAmount, setCollectionAmount] = useState<number>(0);
   const [collectionMethod, setCollectionMethod] =
-    useState<PaymentMethod>('নগদ (Cash)');
-  const [collectionNote, setCollectionNote] = useState('');
+    useState<PaymentMethod>("নগদ (Cash)");
+  const [collectionNote, setCollectionNote] = useState("");
 
   const filteredCustomers = customers.filter(
     (c) =>
       c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.phone.includes(searchQuery)
+      c.phone.includes(searchQuery),
   );
 
-  const totalOutstandingDue = customers.reduce((sum, c) => sum + c.currentDue, 0);
+  const totalOutstandingDue = customers.reduce(
+    (sum, c) => sum + c.currentDue,
+    0,
+  );
 
   const handleOpenCollectModal = (customer: Customer) => {
     setSelectedCustomer(customer);
     setCollectionAmount(Math.min(1000, customer.currentDue));
-    setCollectionNote('বাকি কিস্তি আদায়');
+    setCollectionNote("বাকি কিস্তি আদায়");
     setIsCollectModalOpen(true);
   };
 
   const handleCreateCustomer = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canManageCustomers) {
+      alert("আপনার কাস্টমার পরিবর্তন করার অনুমতি নেই।");
+      return;
+    }
     if (!newCustName) return;
 
     const newCustomer: Customer = {
@@ -76,20 +89,24 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
       totalPurchased: initialDue,
       totalPaid: 0,
       currentDue: initialDue,
-      lastTransactionDate: '২০২৬-১০-২৭',
+      lastTransactionDate: "২০২৬-১০-২৭",
     };
 
     onAddCustomer(newCustomer);
     setSelectedCustomer(newCustomer);
     setIsAddCustomerModalOpen(false);
-    setNewCustName('');
-    setNewCustPhone('');
-    setNewCustAddress('');
+    setNewCustName("");
+    setNewCustPhone("");
+    setNewCustAddress("");
     setInitialDue(0);
   };
 
   const handleSaveCollection = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canManageCustomers) {
+      alert("আপনার Due Collection করার অনুমতি নেই।");
+      return;
+    }
     if (!selectedCustomer || collectionAmount <= 0) return;
 
     const newCollection: DueCollection = {
@@ -97,11 +114,11 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
       customerId: selectedCustomer.id,
       customerName: selectedCustomer.name,
       amount: collectionAmount,
-      date: '২০২৬-১০-২৭',
+      date: "২০২৬-১০-২৭",
       paymentMethod: collectionMethod,
       note: collectionNote,
       collectedBy:
-        currentRole === 'owner' ? 'মো. শাহাদাত হোসেন' : 'কামরুল হাসান',
+        currentRole === "owner" ? "মো. শাহাদাত হোসেন" : "কামরুল হাসান",
       previousDue: selectedCustomer.currentDue,
       remainingDue: Math.max(0, selectedCustomer.currentDue - collectionAmount),
     };
@@ -125,6 +142,7 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
 
         <button
           onClick={() => setIsAddCustomerModalOpen(true)}
+          disabled={!canManageCustomers}
           className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors self-start sm:self-auto cursor-pointer"
         >
           <Plus className="w-4 h-4" />
@@ -136,8 +154,11 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
       <div className="bg-blue-50 border border-blue-200 rounded-xl p-3.5 flex items-start gap-3 text-xs text-blue-900">
         <AlertCircle className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
         <div className="leading-relaxed">
-          <span className="font-bold">গুরুত্বপূর্ণ অ্যাকাউন্টিং নিয়ম:</span>{' '}
-          গ্রাহকের পূর্বের বাকির টাকা আদায় করা হলে তা <strong>ক্যাশ বা মোবাইল ব্যাংকিংয়ে জমা</strong> হবে, কিন্তু কোনোভাবেই <strong>নতুন বিক্রি (Sales Revenue) হিসেবে গণনা করা হবে না</strong>, যাতে বিক্রির সংখ্যা দ্বিগুণ না হয়ে যায়।
+          <span className="font-bold">গুরুত্বপূর্ণ অ্যাকাউন্টিং নিয়ম:</span>{" "}
+          গ্রাহকের পূর্বের বাকির টাকা আদায় করা হলে তা{" "}
+          <strong>ক্যাশ বা মোবাইল ব্যাংকিংয়ে জমা</strong> হবে, কিন্তু কোনোভাবেই{" "}
+          <strong>নতুন বিক্রি (Sales Revenue) হিসেবে গণনা করা হবে না</strong>,
+          যাতে বিক্রির সংখ্যা দ্বিগুণ না হয়ে যায়।
         </div>
       </div>
 
@@ -152,7 +173,7 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
                 গ্রাহক তালিকা ({customers.length})
               </span>
               <span className="text-xs font-bold text-rose-700 tabular-nums">
-                মোট বাকি: ৳{totalOutstandingDue.toLocaleString('bn-BD')}
+                মোট বাকি: ৳{totalOutstandingDue.toLocaleString("bn-BD")}
               </span>
             </div>
 
@@ -178,8 +199,8 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
                   onClick={() => setSelectedCustomer(cust)}
                   className={`p-3.5 transition-colors cursor-pointer flex items-center justify-between ${
                     isSelected
-                      ? 'bg-emerald-50/70 border-r-4 border-r-emerald-600'
-                      : 'hover:bg-slate-50'
+                      ? "bg-emerald-50/70 border-r-4 border-r-emerald-600"
+                      : "hover:bg-slate-50"
                   }`}
                 >
                   <div className="min-w-0 pr-2">
@@ -195,10 +216,14 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
                   <div className="text-right shrink-0">
                     <div
                       className={`text-xs font-bold tabular-nums ${
-                        cust.currentDue > 0 ? 'text-rose-700' : 'text-emerald-700'
+                        cust.currentDue > 0
+                          ? "text-rose-700"
+                          : "text-emerald-700"
                       }`}
                     >
-                      {cust.currentDue > 0 ? `৳${cust.currentDue} বাকি` : 'পরিশোধিত'}
+                      {cust.currentDue > 0
+                        ? `৳${cust.currentDue} বাকি`
+                        : "পরিশোধিত"}
                     </div>
                     <div className="text-[10px] text-slate-400 mt-0.5">
                       শেষ: {cust.lastTransactionDate}
@@ -228,17 +253,19 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
                     )}
                   </div>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    মোবাইল: {selectedCustomer.phone} · ঠিকানা: {selectedCustomer.address || 'দোকানের স্থানীয়'}
+                    মোবাইল: {selectedCustomer.phone} · ঠিকানা:{" "}
+                    {selectedCustomer.address || "দোকানের স্থানীয়"}
                   </p>
                 </div>
 
                 {selectedCustomer.currentDue > 0 && (
                   <button
                     onClick={() => handleOpenCollectModal(selectedCustomer)}
+                    disabled={!canManageCustomers}
                     className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors self-start sm:self-auto cursor-pointer"
                   >
                     <Wallet className="w-4 h-4" />
-                    <span>টাকা আদায় করুন</span>
+                    <span>টাকা আদায় করুন</span>
                   </button>
                 )}
               </div>
@@ -248,19 +275,19 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
                 <div>
                   <div className="text-slate-500 text-[11px]">মোট ক্রয়</div>
                   <div className="font-bold text-slate-900 tabular-nums mt-0.5">
-                    ৳{selectedCustomer.totalPurchased.toLocaleString('bn-BD')}
+                    ৳{selectedCustomer.totalPurchased.toLocaleString("bn-BD")}
                   </div>
                 </div>
                 <div>
                   <div className="text-slate-500 text-[11px]">মোট পরিশোধ</div>
                   <div className="font-bold text-emerald-800 tabular-nums mt-0.5">
-                    ৳{selectedCustomer.totalPaid.toLocaleString('bn-BD')}
+                    ৳{selectedCustomer.totalPaid.toLocaleString("bn-BD")}
                   </div>
                 </div>
                 <div>
                   <div className="text-slate-500 text-[11px]">বর্তমান বাকি</div>
                   <div className="font-extrabold text-rose-700 tabular-nums text-sm mt-0.5">
-                    ৳{selectedCustomer.currentDue.toLocaleString('bn-BD')}
+                    ৳{selectedCustomer.currentDue.toLocaleString("bn-BD")}
                   </div>
                 </div>
               </div>
@@ -279,8 +306,12 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
                         <th className="px-3 py-2 font-medium">তারিখ</th>
                         <th className="px-3 py-2 font-medium">বিবরণ</th>
                         <th className="px-3 py-2 font-medium">মাধ্যম</th>
-                        <th className="px-3 py-2 font-medium text-right">আদায়কৃত টাকা</th>
-                        <th className="px-3 py-2 font-medium text-right">অবশিষ্ট বাকি</th>
+                        <th className="px-3 py-2 font-medium text-right">
+                          আদায়কৃত টাকা
+                        </th>
+                        <th className="px-3 py-2 font-medium text-right">
+                          অবশিষ্ট বাকি
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -342,7 +373,7 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
               min="1"
               max={selectedCustomer?.currentDue || 100000}
               required
-              value={collectionAmount || ''}
+              value={collectionAmount || ""}
               onChange={(e) => setCollectionAmount(Number(e.target.value) || 0)}
               className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold text-emerald-800 tabular-nums focus:outline-none focus:ring-2 focus:ring-emerald-500"
               placeholder="৳ টাকার পরিমাণ"
@@ -396,9 +427,10 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
             </button>
             <button
               type="submit"
+              disabled={!canManageCustomers}
               className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs cursor-pointer"
             >
-              আদায় সম্পন্ন করুন (ডেমো)
+              আদায় সম্পন্ন করুন (ডেমো)
             </button>
           </div>
         </form>
@@ -459,7 +491,7 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
             <input
               type="number"
               min="0"
-              value={initialDue || ''}
+              value={initialDue || ""}
               onChange={(e) => setInitialDue(Number(e.target.value) || 0)}
               className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs tabular-nums focus:outline-none focus:ring-2 focus:ring-emerald-500"
               placeholder="৳ ০"
@@ -476,6 +508,7 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
             </button>
             <button
               type="submit"
+              disabled={!canManageCustomers}
               className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs cursor-pointer"
             >
               সংরক্ষণ করুন (ডেমো)

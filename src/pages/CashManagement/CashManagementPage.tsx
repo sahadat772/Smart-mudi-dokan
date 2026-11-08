@@ -42,11 +42,11 @@ export const CashManagementPage: React.FC<CashManagementPageProps> = ({
       {/* Title */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-slate-200">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+          <h1 className="text-4xl font-bold text-slate-900 tracking-tight">
             ক্যাশ ও ক্যাশবক্স ব্যবস্থাপনা (Cash & Accounts)
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            দোকানের দৈনিক নগদ ক্যাশবক্স ক্লোজিং, ড্রয়ার হিসাব ও ডিজিটাল ব্যালেন্স
+            দোকানের দৈনিক নগদ ক্যাশবক্স ক্লোজিং, ড্রয়ার হিসাব ও ডিজিটাল ব্যালেন্স
           </p>
         </div>
 

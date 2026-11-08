@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from "react";
 import {
   DEMO_PRODUCTS,
   DEMO_CUSTOMERS,
@@ -13,7 +13,7 @@ import {
   DEMO_DUE_COLLECTIONS,
   DEMO_CASH_SESSION,
   DEMO_SHOP_SETTINGS,
-} from './data/mockData';
+} from "./data/mockData";
 import {
   Product,
   Customer,
@@ -24,29 +24,95 @@ import {
   CashSession,
   ShopSettings,
   UserRole,
-} from './types';
-import { Sidebar, NavPageId } from './components/layout/Sidebar';
-import { Topbar } from './components/layout/Topbar';
-import { MobileNav } from './components/layout/MobileNav';
-import { DemoBanner } from './components/common/DemoBanner';
-import { ReceiptModal } from './components/pos/ReceiptModal';
+} from "./types";
+import { Sidebar, NavPageId } from "./components/layout/Sidebar";
+import { Topbar } from "./components/layout/Topbar";
+import { MobileNav } from "./components/layout/MobileNav";
+import { DemoBanner } from "./components/common/DemoBanner";
+import { ReceiptModal } from "./components/pos/ReceiptModal";
+import { onAuthStateChanged, signOut, User } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
+import { auth, db } from "./firebase";
 
 // Pages
-import { DashboardPage } from './pages/Dashboard/DashboardPage';
-import { PosPage } from './pages/POS/PosPage';
-import { ProductsPage } from './pages/Products/ProductsPage';
-import { CustomersPage } from './pages/Customers/CustomersPage';
-import { PurchasesPage } from './pages/Purchases/PurchasesPage';
-import { ExpensesPage } from './pages/Expenses/ExpensesPage';
-import { CashManagementPage } from './pages/CashManagement/CashManagementPage';
-import { ReportsPage } from './pages/Reports/ReportsPage';
-import { SettingsPage } from './pages/Settings/SettingsPage';
-import { LoginPage } from './pages/Login/LoginPage';
+import { DashboardPage } from "./pages/Dashboard/DashboardPage";
+import { PosPage } from "./pages/POS/PosPage";
+import { ProductsPage } from "./pages/Products/ProductsPage";
+import { CustomersPage } from "./pages/Customers/CustomersPage";
+import { PurchasesPage } from "./pages/Purchases/PurchasesPage";
+import { ExpensesPage } from "./pages/Expenses/ExpensesPage";
+import { CashManagementPage } from "./pages/CashManagement/CashManagementPage";
+import { ReportsPage } from "./pages/Reports/ReportsPage";
+import { SettingsPage } from "./pages/Settings/SettingsPage";
+import { LoginPage } from "./pages/Login/LoginPage";
+import StaffManagement from "./pages/Staff/StaffManagement";
 
 export default function App() {
+  // Firebase Authentication State
+  const [authUser, setAuthUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        setAuthUser(null);
+        setCurrentRole(null);
+        setAuthLoading(false);
+        return;
+      }
+
+      try {
+        const userRef = doc(db, "users", user.uid);
+        const userSnap = await getDoc(userRef);
+
+        if (!userSnap.exists()) {
+          await signOut(auth);
+          setAuthUser(null);
+          setCurrentRole(null);
+          return;
+        }
+
+        const userData = userSnap.data();
+
+        if (
+          userData.active !== true ||
+          (userData.role !== "owner" && userData.role !== "employee")
+        ) {
+          await signOut(auth);
+          setAuthUser(null);
+          setCurrentRole(null);
+          return;
+        }
+
+        setCurrentRole(userData.role as UserRole);
+
+        setUserPermissions(
+          userData.role === "employee" && userData.permissions
+            ? userData.permissions
+            : {},
+        );
+
+        setAuthUser(user);
+        setCurrentPage("dashboard");
+      } catch (error) {
+        console.error("Authentication verification failed:", error);
+        await signOut(auth);
+        setAuthUser(null);
+        setCurrentRole(null);
+      } finally {
+        setAuthLoading(false);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
   // Navigation & Role
-  const [currentPage, setCurrentPage] = useState<NavPageId>('dashboard');
-  const [currentRole, setCurrentRole] = useState<UserRole>('owner');
+  const [currentPage, setCurrentPage] = useState<NavPageId>("dashboard");
+  const [currentRole, setCurrentRole] = useState<UserRole | null>(null);
+  const [userPermissions, setUserPermissions] = useState<
+    Record<string, { view: boolean; manage: boolean }>
+  >({});
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Core Data States
@@ -55,21 +121,38 @@ export default function App() {
   const [suppliers, setSuppliers] = useState<Supplier[]>(DEMO_SUPPLIERS);
   const [expenses, setExpenses] = useState<Expense[]>(DEMO_EXPENSES);
   const [recentSales, setRecentSales] = useState<Sale[]>(DEMO_RECENT_SALES);
-  const [dueCollections, setDueCollections] = useState<DueCollection[]>(
-    DEMO_DUE_COLLECTIONS
-  );
-  const [cashSession, setCashSession] = useState<CashSession>(DEMO_CASH_SESSION);
-  const [shopSettings, setShopSettings] = useState<ShopSettings>(
-    DEMO_SHOP_SETTINGS
-  );
+  const [dueCollections, setDueCollections] =
+    useState<DueCollection[]>(DEMO_DUE_COLLECTIONS);
+  const [cashSession, setCashSession] =
+    useState<CashSession>(DEMO_CASH_SESSION);
+  const [shopSettings, setShopSettings] =
+    useState<ShopSettings>(DEMO_SHOP_SETTINGS);
 
   // Receipt Modal State
-  const [receiptSale, setReceiptSale] = useState<Sale | null>(DEMO_RECENT_SALES[0]);
+  const [receiptSale, setReceiptSale] = useState<Sale | null>(
+    DEMO_RECENT_SALES[0],
+  );
   const [isReceiptOpen, setIsReceiptOpen] = useState(false);
+
+  const canAccessPage = (page: NavPageId): boolean => {
+    if (currentRole === "owner") return true;
+
+    if (page === "staff" || page === "settings" || page === "login") {
+      return false;
+    }
+
+    return userPermissions[page]?.view === true;
+  };
+
+  useEffect(() => {
+    if (currentRole && !canAccessPage(currentPage)) {
+      setCurrentPage("dashboard");
+    }
+  }, [currentRole, currentPage, userPermissions]);
 
   // Derived low stock counter
   const lowStockCount = products.filter(
-    (p) => p.stockQuantity <= p.lowStockThreshold
+    (p) => p.stockQuantity <= p.lowStockThreshold,
   ).length;
 
   // Handlers for interactive prototype demonstrations
@@ -80,21 +163,24 @@ export default function App() {
     setProducts((prev) =>
       prev.map((prod) => {
         const itemInSale = newSale.items.find(
-          (item) => item.product.id === prod.id
+          (item) => item.product.id === prod.id,
         );
         if (itemInSale) {
           return {
             ...prod,
-            stockQuantity: Math.max(0, prod.stockQuantity - itemInSale.quantity),
+            stockQuantity: Math.max(
+              0,
+              prod.stockQuantity - itemInSale.quantity,
+            ),
           };
         }
         return prod;
-      })
+      }),
     );
 
     // If sale includes cash, update cash session
     const cashPaid = newSale.payments
-      .filter((p) => p.method === 'নগদ (Cash)')
+      .filter((p) => p.method === "নগদ (Cash)")
       .reduce((s, p) => s + p.amount, 0);
 
     if (cashPaid > 0) {
@@ -137,11 +223,11 @@ export default function App() {
           };
         }
         return cust;
-      })
+      }),
     );
 
     // If collected via cash, increase cash session
-    if (collection.paymentMethod === 'নগদ (Cash)') {
+    if (collection.paymentMethod === "নগদ (Cash)") {
       setCashSession((prev) => ({
         ...prev,
         cashDueCollected: prev.cashDueCollected + collection.amount,
@@ -167,7 +253,7 @@ export default function App() {
           };
         }
         return p;
-      })
+      }),
     );
 
     // Update supplier balance
@@ -183,7 +269,7 @@ export default function App() {
           };
         }
         return s;
-      })
+      }),
     );
   };
 
@@ -191,7 +277,7 @@ export default function App() {
     setExpenses([expense, ...expenses]);
 
     // If paid via cash, reduce cash session
-    if (expense.paymentMethod === 'নগদ (Cash)') {
+    if (expense.paymentMethod === "নগদ (Cash)") {
       setCashSession((prev) => ({
         ...prev,
         cashExpenses: prev.cashExpenses + expense.amount,
@@ -213,6 +299,35 @@ export default function App() {
     setIsReceiptOpen(true);
   };
 
+  // Show loading while Firebase checks the session
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-100">
+        <div className="text-center">
+          <div className="text-lg font-bold text-slate-800">
+            Smart Mudi Manager
+          </div>
+          <p className="text-sm text-slate-500 mt-2">
+            অ্যাকাউন্ট যাচাই হচ্ছে...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show Login Page when user is not authenticated
+  if (!authUser || !currentRole) {
+    return (
+      <LoginPage
+        currentRole="owner"
+        onLoginSuccess={(role) => {
+          setCurrentRole(role);
+          setCurrentPage("dashboard");
+        }}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col font-sans">
       {/* Top Banner indicating Prototype / Demo State */}
@@ -226,6 +341,7 @@ export default function App() {
           isOpenMobile={isMobileMenuOpen}
           onCloseMobile={() => setIsMobileMenuOpen(false)}
           currentRole={currentRole}
+          permissions={userPermissions}
           lowStockCount={lowStockCount}
         />
 
@@ -236,12 +352,12 @@ export default function App() {
             onRoleChange={(role) => setCurrentRole(role)}
             onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
             lowStockCount={lowStockCount}
-            onNavigateToLowStock={() => setCurrentPage('products')}
+            onNavigateToLowStock={() => setCurrentPage("products")}
             shopName={shopSettings.shopName}
           />
 
           <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
-            {currentPage === 'dashboard' && (
+            {currentPage === "dashboard" && (
               <DashboardPage
                 products={products}
                 recentSales={recentSales}
@@ -251,54 +367,95 @@ export default function App() {
               />
             )}
 
-            {currentPage === 'pos' && (
+            {currentPage === "staff" && currentRole === "owner" && (
+              <StaffManagement />
+            )}
+
+            {currentPage === "pos" && (
               <PosPage
                 products={products}
                 customers={customers}
                 currentRole={currentRole}
+                permissions={
+                  currentRole === "owner"
+                    ? { view: true, manage: true }
+                    : (userPermissions.pos ?? { view: false, manage: false })
+                }
                 onCompleteSale={handleCompleteSale}
                 shopName={shopSettings.shopName}
               />
             )}
 
-            {currentPage === 'products' && (
+            {currentPage === "products" && (
               <ProductsPage
                 products={products}
                 currentRole={currentRole}
+                permissions={
+                  currentRole === "owner"
+                    ? { view: true, manage: true }
+                    : (userPermissions.products ?? {
+                        view: false,
+                        manage: false,
+                      })
+                }
                 onAddProduct={handleAddProduct}
                 onUpdateProduct={handleUpdateProduct}
               />
             )}
 
-            {currentPage === 'customers' && (
+            {currentPage === "customers" && (
               <CustomersPage
                 customers={customers}
                 dueCollections={dueCollections}
                 currentRole={currentRole}
+                permissions={
+                  currentRole === "owner"
+                    ? { view: true, manage: true }
+                    : (userPermissions.customers ?? {
+                        view: false,
+                        manage: false,
+                      })
+                }
                 onAddCustomer={handleAddCustomer}
                 onCollectDue={handleCollectDue}
               />
             )}
 
-            {currentPage === 'purchases' && (
+            {currentPage === "purchases" && (
               <PurchasesPage
                 suppliers={suppliers}
                 products={products}
                 currentRole={currentRole}
+                permissions={
+                  currentRole === "owner"
+                    ? { view: true, manage: true }
+                    : (userPermissions.purchases ?? {
+                        view: false,
+                        manage: false,
+                      })
+                }
                 onAddSupplier={handleAddSupplier}
                 onAddPurchase={handleAddPurchase}
               />
             )}
 
-            {currentPage === 'expenses' && (
+            {currentPage === "expenses" && (
               <ExpensesPage
                 expenses={expenses}
                 currentRole={currentRole}
+                permissions={
+                  currentRole === "owner"
+                    ? { view: true, manage: true }
+                    : (userPermissions.expenses ?? {
+                        view: false,
+                        manage: false,
+                      })
+                }
                 onAddExpense={handleAddExpense}
               />
             )}
 
-            {currentPage === 'cash' && (
+            {currentPage === "cash" && (
               <CashManagementPage
                 cashSession={cashSession}
                 currentRole={currentRole}
@@ -306,11 +463,11 @@ export default function App() {
               />
             )}
 
-            {currentPage === 'reports' && (
+            {currentPage === "reports" && currentRole === "owner" && (
               <ReportsPage currentRole={currentRole} />
             )}
 
-            {currentPage === 'settings' && (
+            {currentPage === "settings" && (
               <SettingsPage
                 settings={shopSettings}
                 onUpdateSettings={(s) => setShopSettings(s)}
@@ -318,11 +475,11 @@ export default function App() {
               />
             )}
 
-            {currentPage === 'login' && (
+            {currentPage === "login" && currentRole === "owner" && (
               <LoginPage
                 onLoginSuccess={(role) => {
                   setCurrentRole(role);
-                  setCurrentPage('dashboard');
+                  setCurrentPage("dashboard");
                 }}
                 currentRole={currentRole}
               />

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState } from "react";
 import {
   Search,
   Plus,
@@ -9,13 +9,17 @@ import {
   Layers,
   ArrowUpDown,
   Check,
-} from 'lucide-react';
-import { Product, ProductCategory, ProductUnit, UserRole } from '../../types';
-import { Modal } from '../../components/common/Modal';
+} from "lucide-react";
+import { Product, ProductCategory, ProductUnit, UserRole } from "../../types";
+import { Modal } from "../../components/common/Modal";
 
 interface ProductsPageProps {
   products: Product[];
   currentRole: UserRole;
+  permissions?: {
+    view: boolean;
+    manage: boolean;
+  };
   onAddProduct: (product: Product) => void;
   onUpdateProduct: (product: Product) => void;
 }
@@ -23,51 +27,54 @@ interface ProductsPageProps {
 export const ProductsPage: React.FC<ProductsPageProps> = ({
   products,
   currentRole,
+  permissions,
   onAddProduct,
   onUpdateProduct,
 }) => {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [isLowStockOnly, setIsLowStockOnly] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const canManageProducts =
+    currentRole === "owner" || permissions?.manage === true;
 
   // Form states
   const [formData, setFormData] = useState({
-    name: '',
-    category: 'চাল ও ডাল' as ProductCategory,
-    unit: 'কেজি' as ProductUnit,
-    sku: '',
-    barcode: '',
+    name: "",
+    category: "চাল ও ডাল" as ProductCategory,
+    unit: "কেজি" as ProductUnit,
+    sku: "",
+    barcode: "",
     costPrice: 0,
     sellingPrice: 0,
     stockQuantity: 0,
     lowStockThreshold: 10,
-    shelfLocation: '',
+    shelfLocation: "",
   });
 
   const categories: ProductCategory[] = [
-    'চাল ও ডাল',
-    'তেল ও ঘি',
-    'মসলা ও গুঁড়া',
-    'বিস্কুট ও স্ন্যাক্স',
-    'চা, কফি ও পানীয়',
-    'সাবান ও প্রসাধন',
-    'দুগ্ধজাত পণ্য ও ডিম',
-    'পরিষ্কারক সামগ্রী',
-    'অন্যান্য',
+    "চাল ও ডাল",
+    "তেল ও ঘি",
+    "মসলা ও গুঁড়া",
+    "বিস্কুট ও স্ন্যাক্স",
+    "চা, কফি ও পানীয়",
+    "সাবান ও প্রসাধন",
+    "দুগ্ধজাত পণ্য ও ডিম",
+    "পরিষ্কারক সামগ্রী",
+    "অন্যান্য",
   ];
 
   const units: ProductUnit[] = [
-    'কেজি',
-    'গ্রাম',
-    'লিটার',
-    'মিলি',
-    'প্যাকেট',
-    'পিস',
-    'ডজন',
-    'বস্তা',
-    'কার্টুন',
+    "কেজি",
+    "গ্রাম",
+    "লিটার",
+    "মিলি",
+    "প্যাকেট",
+    "পিস",
+    "ডজন",
+    "বস্তা",
+    "কার্টুন",
   ];
 
   const filteredProducts = products.filter((p) => {
@@ -76,8 +83,9 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
       p.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (p.barcode && p.barcode.includes(searchQuery));
     const matchesCategory =
-      selectedCategory === 'all' || p.category === selectedCategory;
-    const matchesLowStock = !isLowStockOnly || p.stockQuantity <= p.lowStockThreshold;
+      selectedCategory === "all" || p.category === selectedCategory;
+    const matchesLowStock =
+      !isLowStockOnly || p.stockQuantity <= p.lowStockThreshold;
 
     return matchesSearch && matchesCategory && matchesLowStock;
   });
@@ -85,16 +93,16 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
   const handleOpenAddModal = () => {
     setEditingProduct(null);
     setFormData({
-      name: '',
-      category: 'চাল ও ডাল',
-      unit: 'কেজি',
+      name: "",
+      category: "চাল ও ডাল",
+      unit: "কেজি",
       sku: `PROD-${Date.now().toString().slice(-4)}`,
-      barcode: '',
+      barcode: "",
       costPrice: 0,
       sellingPrice: 0,
       stockQuantity: 10,
       lowStockThreshold: 10,
-      shelfLocation: '',
+      shelfLocation: "",
     });
     setIsModalOpen(true);
   };
@@ -106,31 +114,37 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
       category: product.category,
       unit: product.unit,
       sku: product.sku,
-      barcode: product.barcode || '',
+      barcode: product.barcode || "",
       costPrice: product.costPrice,
       sellingPrice: product.sellingPrice,
       stockQuantity: product.stockQuantity,
       lowStockThreshold: product.lowStockThreshold,
-      shelfLocation: product.shelfLocation || '',
+      shelfLocation: product.shelfLocation || "",
     });
     setIsModalOpen(true);
   };
 
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!canManageProducts) {
+      alert("আপনার পণ্য পরিবর্তন করার অনুমতি নেই।");
+      return;
+    }
+
     if (!formData.name) return;
 
     if (editingProduct) {
       onUpdateProduct({
         ...editingProduct,
         ...formData,
-        updatedAt: '২০২৬-১০-২৭',
+        updatedAt: "২০২৬-১০-২৭",
       });
     } else {
       onAddProduct({
         id: `prod-${Date.now()}`,
         ...formData,
-        updatedAt: '২০২৬-১০-২৭',
+        updatedAt: "২০২৬-১০-২৭",
       });
     }
 
@@ -152,7 +166,8 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
 
         <button
           onClick={handleOpenAddModal}
-          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors self-start sm:self-auto cursor-pointer"
+          disabled={!canManageProducts}
+          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors self-start sm:self-auto cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Plus className="w-4 h-4" />
           <span>নতুন পণ্য যুক্ত করুন</span>
@@ -195,8 +210,8 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
             onClick={() => setIsLowStockOnly(!isLowStockOnly)}
             className={`px-3 py-2 rounded-lg text-xs font-medium border flex items-center justify-center gap-1.5 transition-colors cursor-pointer shrink-0 ${
               isLowStockOnly
-                ? 'bg-amber-100 text-amber-900 border-amber-300 font-semibold'
-                : 'bg-slate-50 text-slate-600 border-slate-300 hover:bg-slate-100'
+                ? "bg-amber-100 text-amber-900 border-amber-300 font-semibold"
+                : "bg-slate-50 text-slate-600 border-slate-300 hover:bg-slate-100"
             }`}
           >
             <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
@@ -214,13 +229,17 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
                 <th className="px-4 py-3 font-medium">পণ্যের নাম ও বিবরণ</th>
                 <th className="px-4 py-3 font-medium">ক্যাটাগরি</th>
                 <th className="px-4 py-3 font-medium text-center">একক</th>
-                {currentRole === 'owner' && (
+                {currentRole === "owner" && (
                   <th className="px-4 py-3 font-medium text-right text-indigo-900">
                     ক্রয়মূল্য (COGS)
                   </th>
                 )}
-                <th className="px-4 py-3 font-medium text-right">বিক্রয়মূল্য</th>
-                <th className="px-4 py-3 font-medium text-center">বর্তমান স্টক</th>
+                <th className="px-4 py-3 font-medium text-right">
+                  বিক্রয়মূল্য
+                </th>
+                <th className="px-4 py-3 font-medium text-center">
+                  বর্তমান স্টক
+                </th>
                 <th className="px-4 py-3 font-medium">অবস্থান</th>
                 <th className="px-4 py-3 font-medium text-right">অ্যাকশন</th>
               </tr>
@@ -260,7 +279,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
                         {p.unit}
                       </td>
 
-                      {currentRole === 'owner' && (
+                      {currentRole === "owner" && (
                         <td className="px-4 py-3 text-right font-medium text-indigo-900 tabular-nums">
                           ৳{p.costPrice}
                         </td>
@@ -274,23 +293,26 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
                         <span
                           className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-xs font-bold tabular-nums ${
                             isLow
-                              ? 'bg-rose-100 text-rose-800 border border-rose-300'
-                              : 'bg-emerald-50 text-emerald-800'
+                              ? "bg-rose-100 text-rose-800 border border-rose-300"
+                              : "bg-emerald-50 text-emerald-800"
                           }`}
                         >
-                          {isLow && <AlertTriangle className="w-3 h-3 text-rose-600" />}
+                          {isLow && (
+                            <AlertTriangle className="w-3 h-3 text-rose-600" />
+                          )}
                           {p.stockQuantity} {p.unit}
                         </span>
                       </td>
 
                       <td className="px-4 py-3 text-slate-500 text-[11px]">
-                        {p.shelfLocation || '—'}
+                        {p.shelfLocation || "—"}
                       </td>
 
                       <td className="px-4 py-3 text-right">
                         <button
                           onClick={() => handleOpenEditModal(p)}
-                          className="p-1.5 text-slate-600 hover:text-emerald-700 hover:bg-slate-100 rounded transition-colors cursor-pointer"
+                          disabled={!canManageProducts}
+                          className="p-1.5 text-slate-600 hover:text-emerald-700 hover:bg-slate-100 rounded transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                           title="সম্পাদনা করুন"
                         >
                           <Edit2 className="w-4 h-4" />
@@ -307,8 +329,8 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
         <div className="p-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
           <span>মোট প্রদর্শিত পণ্য: {filteredProducts.length} টি</span>
           <span>
-            {currentRole === 'employee' &&
-              '* কর্মচারী মোডে ক্রয়মূল্য গোপন রাখা হয়েছে (মালিক মোডে সুইচ করে ক্রয়মূল্য দেখতে পারবেন)।'}
+            {currentRole === "employee" &&
+              "* কর্মচারী মোডে ক্রয়মূল্য গোপন রাখা হয়েছে (মালিক মোডে সুইচ করে ক্রয়মূল্য দেখতে পারবেন)।"}
           </span>
         </div>
       </div>
@@ -317,7 +339,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        title={editingProduct ? 'পণ্য সম্পাদনা' : 'নতুন পণ্য যোগ করুন'}
+        title={editingProduct ? "পণ্য সম্পাদনা" : "নতুন পণ্য যোগ করুন"}
         subtitle="মুদি দোকানের স্টক ও মূল্য তালিকা নির্ধারণ (Phase 1 UI)"
       >
         <form onSubmit={handleFormSubmit} className="space-y-4 text-xs">
@@ -329,7 +351,9 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
               type="text"
               required
               value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, name: e.target.value })
+              }
               className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
               placeholder="যেমন: মিনিকেট চাল (৫ কেজি প্যাকেট)"
             />
@@ -391,9 +415,12 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
                 min="0"
                 step="any"
                 required
-                value={formData.costPrice || ''}
+                value={formData.costPrice || ""}
                 onChange={(e) =>
-                  setFormData({ ...formData, costPrice: Number(e.target.value) })
+                  setFormData({
+                    ...formData,
+                    costPrice: Number(e.target.value),
+                  })
                 }
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs tabular-nums focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 placeholder="৳ যেমন: ৭০"
@@ -409,7 +436,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
                 min="0"
                 step="any"
                 required
-                value={formData.sellingPrice || ''}
+                value={formData.sellingPrice || ""}
                 onChange={(e) =>
                   setFormData({
                     ...formData,
@@ -430,7 +457,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
               <input
                 type="number"
                 min="0"
-                value={formData.stockQuantity || ''}
+                value={formData.stockQuantity || ""}
                 onChange={(e) =>
                   setFormData({
                     ...formData,
@@ -449,7 +476,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
               <input
                 type="number"
                 min="1"
-                value={formData.lowStockThreshold || ''}
+                value={formData.lowStockThreshold || ""}
                 onChange={(e) =>
                   setFormData({
                     ...formData,
@@ -470,7 +497,9 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
               <input
                 type="text"
                 value={formData.sku}
-                onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, sku: e.target.value })
+                }
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
             </div>
@@ -503,7 +532,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
               type="submit"
               className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs cursor-pointer"
             >
-              {editingProduct ? 'আপডেট করুন' : 'সংরক্ষণ করুন (ডেমো)'}
+              {editingProduct ? "আপডেট করুন" : "সংরক্ষণ করুন (ডেমো)"}
             </button>
           </div>
         </form>
