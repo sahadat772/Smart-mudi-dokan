@@ -11,16 +11,13 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
-// Initialize Firebase
+const databaseId =
+  import.meta.env.VITE_FIRESTORE_DATABASE_ID ||
+  "ai-studio-96cf70ad-76e2-4b50-86a6-02248977631a";
+
 const app = initializeApp(firebaseConfig);
 
-// Firebase Authentication
 export const auth = getAuth(app);
-
-// Cloud Firestore Database
-export const db = getFirestore(
-  app,
-  "ai-studio-96cf70ad-76e2-4b50-86a6-02248977631a"
-);
+export const db = getFirestore(app, databaseId);
 
 export default app;

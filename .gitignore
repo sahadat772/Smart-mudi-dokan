@@ -4,11 +4,13 @@ dist/
 coverage/
 .DS_Store
 *.log
+bun.lock
 
 # Environment files
 .env*
 !.env.example
+server/.env
 
-
-# Firebase Admin private key
+# Firebase Admin private key — never commit
 serviceAccountKey.json
+**/serviceAccountKey.json
