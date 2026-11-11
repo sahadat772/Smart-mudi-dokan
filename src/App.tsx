@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   DEMO_PRODUCTS,
   DEMO_CUSTOMERS,
@@ -34,7 +34,6 @@ import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "./firebase";
 
-// Pages
 import { DashboardPage } from "./pages/Dashboard/DashboardPage";
 import { PosPage } from "./pages/POS/PosPage";
 import { ProductsPage } from "./pages/Products/ProductsPage";
@@ -49,66 +48,10 @@ import StaffManagement from "./pages/Staff/StaffManagement";
 import { ChangePasswordPage } from "./pages/ChangePassword/ChangePasswordPage";
 
 export default function App() {
-  // Firebase Authentication State
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [displayName, setDisplayName] = useState<string | undefined>(undefined);
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (!user) {
-        setAuthUser(null);
-        setCurrentRole(null);
-        setAuthLoading(false);
-        return;
-      }
-
-      try {
-        const userRef = doc(db, "users", user.uid);
-        const userSnap = await getDoc(userRef);
-
-        if (!userSnap.exists()) {
-          await signOut(auth);
-          setAuthUser(null);
-          setCurrentRole(null);
-          return;
-        }
-
-        const userData = userSnap.data();
-
-        if (
-          userData.active !== true ||
-          (userData.role !== "owner" && userData.role !== "employee")
-        ) {
-          await signOut(auth);
-          setAuthUser(null);
-          setCurrentRole(null);
-          return;
-        }
-
-        setCurrentRole(userData.role as UserRole);
-
-        setUserPermissions(
-          userData.role === "employee" && userData.permissions
-            ? userData.permissions
-            : {},
-        );
-
-        setAuthUser(user);
-        setCurrentPage("dashboard");
-      } catch (error) {
-        console.error("Authentication verification failed:", error);
-        await signOut(auth);
-        setAuthUser(null);
-        setCurrentRole(null);
-      } finally {
-        setAuthLoading(false);
-      }
-    });
-
-    return () => unsubscribe();
-  }, []);
-
-  // Navigation & Role
   const [currentPage, setCurrentPage] = useState<NavPageId>("dashboard");
   const [currentRole, setCurrentRole] = useState<UserRole | null>(null);
   const [mustChangePassword, setMustChangePassword] = useState(false);
@@ -117,7 +60,6 @@ export default function App() {
   >({});
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  // Core Data States
   const [products, setProducts] = useState<Product[]>(DEMO_PRODUCTS);
   const [customers, setCustomers] = useState<Customer[]>(DEMO_CUSTOMERS);
   const [suppliers, setSuppliers] = useState<Supplier[]>(DEMO_SUPPLIERS);
@@ -130,11 +72,88 @@ export default function App() {
   const [shopSettings, setShopSettings] =
     useState<ShopSettings>(DEMO_SHOP_SETTINGS);
 
-  // Receipt Modal State
   const [receiptSale, setReceiptSale] = useState<Sale | null>(
     DEMO_RECENT_SALES[0],
   );
   const [isReceiptOpen, setIsReceiptOpen] = useState(false);
+
+  const clearAuthState = useCallback(() => {
+    setAuthUser(null);
+    setCurrentRole(null);
+    setMustChangePassword(false);
+    setUserPermissions({});
+    setDisplayName(undefined);
+    setCurrentPage("dashboard");
+    setIsMobileMenuOpen(false);
+  }, []);
+
+  const handleLogout = useCallback(async () => {
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error("Logout failed:", error);
+    } finally {
+      clearAuthState();
+    }
+  }, [clearAuthState]);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        clearAuthState();
+        setAuthLoading(false);
+        return;
+      }
+
+      try {
+        const userRef = doc(db, "users", user.uid);
+        const userSnap = await getDoc(userRef);
+
+        if (!userSnap.exists()) {
+          await signOut(auth);
+          clearAuthState();
+          return;
+        }
+
+        const userData = userSnap.data();
+
+        if (
+          userData.active !== true ||
+          (userData.role !== "owner" && userData.role !== "employee")
+        ) {
+          await signOut(auth);
+          clearAuthState();
+          return;
+        }
+
+        const needsPasswordChange =
+          userData.role === "employee" && userData.mustChangePassword === true;
+
+        setCurrentRole(userData.role as UserRole);
+        setMustChangePassword(needsPasswordChange);
+        setDisplayName(
+          typeof userData.displayName === "string"
+            ? userData.displayName
+            : undefined,
+        );
+        setUserPermissions(
+          userData.role === "employee" && userData.permissions
+            ? userData.permissions
+            : {},
+        );
+        setAuthUser(user);
+        setCurrentPage(needsPasswordChange ? "change-password" : "dashboard");
+      } catch (error) {
+        console.error("Authentication verification failed:", error);
+        await signOut(auth);
+        clearAuthState();
+      } finally {
+        setAuthLoading(false);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [clearAuthState]);
 
   const canAccessPage = (page: NavPageId): boolean => {
     if (currentRole === "owner") return true;
@@ -143,25 +162,31 @@ export default function App() {
       return false;
     }
 
+    if (page === "change-password") {
+      return mustChangePassword;
+    }
+
     return userPermissions[page]?.view === true;
   };
 
   useEffect(() => {
-    if (currentRole && !canAccessPage(currentPage)) {
+    if (!currentRole) return;
+    if (mustChangePassword) {
+      setCurrentPage("change-password");
+      return;
+    }
+    if (!canAccessPage(currentPage)) {
       setCurrentPage("dashboard");
     }
-  }, [currentRole, currentPage, userPermissions]);
+  }, [currentRole, currentPage, userPermissions, mustChangePassword]);
 
-  // Derived low stock counter
   const lowStockCount = products.filter(
     (p) => p.stockQuantity <= p.lowStockThreshold,
   ).length;
 
-  // Handlers for interactive prototype demonstrations
   const handleCompleteSale = (newSale: Sale) => {
     setRecentSales([newSale, ...recentSales]);
 
-    // Decrease in-memory stock for prototype session
     setProducts((prev) =>
       prev.map((prod) => {
         const itemInSale = newSale.items.find(
@@ -180,7 +205,6 @@ export default function App() {
       }),
     );
 
-    // If sale includes cash, update cash session
     const cashPaid = newSale.payments
       .filter((p) => p.method === "নগদ (Cash)")
       .reduce((s, p) => s + p.amount, 0);
@@ -193,7 +217,6 @@ export default function App() {
       }));
     }
 
-    // Open receipt modal
     setReceiptSale(newSale);
     setIsReceiptOpen(true);
   };
@@ -213,7 +236,6 @@ export default function App() {
   const handleCollectDue = (collection: DueCollection) => {
     setDueCollections([collection, ...dueCollections]);
 
-    // Update customer's current due and total paid
     setCustomers((prev) =>
       prev.map((cust) => {
         if (cust.id === collection.customerId) {
@@ -228,7 +250,6 @@ export default function App() {
       }),
     );
 
-    // If collected via cash, increase cash session
     if (collection.paymentMethod === "নগদ (Cash)") {
       setCashSession((prev) => ({
         ...prev,
@@ -243,7 +264,6 @@ export default function App() {
   };
 
   const handleAddPurchase = (purchase: any) => {
-    // Increase stock of product
     setProducts((prev) =>
       prev.map((p) => {
         const item = purchase.items[0];
@@ -258,7 +278,6 @@ export default function App() {
       }),
     );
 
-    // Update supplier balance
     setSuppliers((prev) =>
       prev.map((s) => {
         if (s.id === purchase.supplierId) {
@@ -278,7 +297,6 @@ export default function App() {
   const handleAddExpense = (expense: Expense) => {
     setExpenses([expense, ...expenses]);
 
-    // If paid via cash, reduce cash session
     if (expense.paymentMethod === "নগদ (Cash)") {
       setCashSession((prev) => ({
         ...prev,
@@ -301,7 +319,6 @@ export default function App() {
     setIsReceiptOpen(true);
   };
 
-  // Show loading while Firebase checks the session
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-100">
@@ -317,7 +334,6 @@ export default function App() {
     );
   }
 
-  // Show Login Page when user is not authenticated
   if (!authUser || !currentRole) {
     return (
       <LoginPage
@@ -325,8 +341,19 @@ export default function App() {
         onLoginSuccess={(role, needsPasswordChange) => {
           setCurrentRole(role);
           setMustChangePassword(needsPasswordChange);
-
           setCurrentPage(needsPasswordChange ? "change-password" : "dashboard");
+        }}
+      />
+    );
+  }
+
+  // Mandatory first-login password change blocks the rest of the app.
+  if (mustChangePassword && currentRole === "employee") {
+    return (
+      <ChangePasswordPage
+        onPasswordChanged={() => {
+          setMustChangePassword(false);
+          setCurrentPage("dashboard");
         }}
       />
     );
@@ -334,11 +361,9 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col font-sans">
-      {/* Top Banner indicating Prototype / Demo State */}
       <DemoBanner />
 
       <div className="flex-1 flex overflow-hidden">
-        {/* Persistent Desktop Sidebar & Drawer for Mobile */}
         <Sidebar
           currentPage={currentPage}
           onNavigate={(page) => setCurrentPage(page)}
@@ -349,11 +374,11 @@ export default function App() {
           lowStockCount={lowStockCount}
         />
 
-        {/* Main Content Area */}
         <div className="flex-1 flex flex-col min-w-0 overflow-y-auto pb-20 lg:pb-8">
           <Topbar
             currentRole={currentRole}
-            onRoleChange={(role) => setCurrentRole(role)}
+            displayName={displayName}
+            onLogout={handleLogout}
             onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
             lowStockCount={lowStockCount}
             onNavigateToLowStock={() => setCurrentPage("products")}
@@ -472,7 +497,7 @@ export default function App() {
               />
             )}
 
-            {currentPage === "reports" && currentRole === "owner" && (
+            {currentPage === "reports" && canAccessPage("reports") && (
               <ReportsPage
                 currentRole={currentRole}
                 permissions={
@@ -486,54 +511,24 @@ export default function App() {
               />
             )}
 
-            {currentPage === "settings" && (
+            {currentPage === "settings" && currentRole === "owner" && (
               <SettingsPage
                 settings={shopSettings}
                 onUpdateSettings={(s) => setShopSettings(s)}
                 currentRole={currentRole}
-                permissions={
-                  currentRole === "owner"
-                    ? { view: true, manage: true }
-                    : (userPermissions.settings ?? {
-                        view: false,
-                        manage: false,
-                      })
-                }
+                permissions={{ view: true, manage: true }}
               />
             )}
-
-            {currentPage === "login" && currentRole === "owner" && (
-              <LoginPage
-                onLoginSuccess={(role) => {
-                  setCurrentRole(role);
-                  setCurrentPage("dashboard");
-                }}
-                currentRole={currentRole}
-              />
-            )}
-
-            {currentPage === "change-password" &&
-              currentRole === "employee" &&
-              mustChangePassword && (
-                <ChangePasswordPage
-                  onPasswordChanged={() => {
-                    setMustChangePassword(false);
-                    setCurrentPage("dashboard");
-                  }}
-                />
-              )}
           </main>
         </div>
       </div>
 
-      {/* Mobile Bottom Thumb Navigation */}
       <MobileNav
         currentPage={currentPage}
         onNavigate={(page) => setCurrentPage(page)}
         onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
       />
 
-      {/* Printable 80mm Cash Memo Receipt Modal */}
       <ReceiptModal
         isOpen={isReceiptOpen}
         onClose={() => setIsReceiptOpen(false)}
