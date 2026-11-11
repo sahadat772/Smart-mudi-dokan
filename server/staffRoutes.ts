@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminAuth, adminDb } from "./firebaseAdmin.js";
-import { verifyOwner } from "./authMiddleware.js";
+import { verifyOwner, verifyUser } from "./authMiddleware.js";
 
 const router = Router();
 
@@ -117,6 +117,8 @@ function validatePermissions(value: unknown): PermissionSet | null {
   return result;
 }
 
+const shopId = () => process.env.SHOP_ID || "default";
+
 router.post("/", verifyOwner, async (req, res) => {
   let createdUid: string | null = null;
 
@@ -208,12 +210,18 @@ router.post("/", verifyOwner, async (req, res) => {
 
     createdUid = employee.uid;
 
+    await adminAuth.setCustomUserClaims(employee.uid, {
+      role: "employee",
+      shopId: shopId(),
+    });
+
     await adminDb.collection("users").doc(employee.uid).set({
       uid: employee.uid,
       email: normalizedEmail,
       displayName,
       role: "employee",
       jobRole: role,
+      shopId: shopId(),
       active: true,
       mustChangePassword: true,
       permissions: finalPermissions,
@@ -268,21 +276,9 @@ router.post("/", verifyOwner, async (req, res) => {
 });
 
 // Employee: Complete mandatory first-login password change
-router.post("/complete-first-login", async (req, res) => {
+router.post("/complete-first-login", verifyUser, async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-
-    if (!authHeader?.startsWith("Bearer ")) {
-      return res.status(401).json({
-        success: false,
-        message: "Authentication token is required.",
-      });
-    }
-
-    const idToken = authHeader.split(" ")[1];
-    const decodedToken = await adminAuth.verifyIdToken(idToken);
-
-    const uid = decodedToken.uid;
+    const uid = req.user!.uid;
     const { newPassword } = req.body;
 
     if (
@@ -319,12 +315,10 @@ router.post("/complete-first-login", async (req, res) => {
       });
     }
 
-    // Update password through Firebase Admin SDK
     await adminAuth.updateUser(uid, {
       password: newPassword,
     });
 
-    // Update first-login status
     await userRef.update({
       mustChangePassword: false,
       passwordChangedAt: FieldValue.serverTimestamp(),

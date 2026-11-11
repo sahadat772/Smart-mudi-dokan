@@ -1,10 +1,11 @@
-import React from 'react';
-import { Menu, Bell, Shield, User, Store, AlertTriangle } from 'lucide-react';
-import { UserRole } from '../../types';
+import React from "react";
+import { Menu, Store, AlertTriangle, LogOut, Shield, User } from "lucide-react";
+import { UserRole } from "../../types";
 
 interface TopbarProps {
   currentRole: UserRole;
-  onRoleChange: (role: UserRole) => void;
+  displayName?: string;
+  onLogout: () => void;
   onOpenMobileMenu: () => void;
   lowStockCount: number;
   onNavigateToLowStock: () => void;
@@ -13,15 +14,19 @@ interface TopbarProps {
 
 export const Topbar: React.FC<TopbarProps> = ({
   currentRole,
-  onRoleChange,
+  displayName,
+  onLogout,
   onOpenMobileMenu,
   lowStockCount,
   onNavigateToLowStock,
   shopName,
 }) => {
+  const label =
+    displayName ||
+    (currentRole === "owner" ? "দোকান মালিক" : "কর্মচারী");
+
   return (
     <header className="h-16 bg-white border-b border-slate-200 sticky top-0 z-30 px-4 md:px-6 flex items-center justify-between gap-4">
-      {/* Zone 1: Brand & Mobile Toggle */}
       <div className="flex items-center gap-3 shrink-0">
         <button
           onClick={onOpenMobileMenu}
@@ -46,9 +51,7 @@ export const Topbar: React.FC<TopbarProps> = ({
         </div>
       </div>
 
-      {/* Zone 2: Status & Notifications */}
       <div className="flex items-center gap-2 sm:gap-4 shrink-0">
-        {/* Low Stock Indicator */}
         {lowStockCount > 0 && (
           <button
             onClick={onNavigateToLowStock}
@@ -63,46 +66,40 @@ export const Topbar: React.FC<TopbarProps> = ({
           </button>
         )}
 
-        {/* Role Switcher (Preview Mode for Testing Both Views) */}
-        <div className="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200">
-          <button
-            onClick={() => onRoleChange('owner')}
-            className={`px-2.5 py-1 text-xs font-medium rounded transition-all flex items-center gap-1.5 cursor-pointer ${
-              currentRole === 'owner'
-                ? 'bg-white text-emerald-800 shadow-xs font-semibold'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Shield className="w-3.5 h-3.5" />
-            <span>মালিক ভিউ</span>
-          </button>
-          <button
-            onClick={() => onRoleChange('employee')}
-            className={`px-2.5 py-1 text-xs font-medium rounded transition-all flex items-center gap-1.5 cursor-pointer ${
-              currentRole === 'employee'
-                ? 'bg-white text-blue-800 shadow-xs font-semibold'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <User className="w-3.5 h-3.5" />
-            <span>কর্মচারী ভিউ</span>
-          </button>
+        <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-xs text-slate-700">
+          {currentRole === "owner" ? (
+            <Shield className="w-3.5 h-3.5 text-emerald-700" />
+          ) : (
+            <User className="w-3.5 h-3.5 text-blue-700" />
+          )}
+          <span className="font-medium">
+            {currentRole === "owner" ? "মালিক" : "কর্মচারী"}
+          </span>
         </div>
 
-        {/* Current user badge */}
         <div className="hidden md:flex items-center gap-2 pl-2 border-l border-slate-200">
           <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-xs font-semibold text-slate-700">
-            {currentRole === 'owner' ? 'শা' : 'কা'}
+            {label.slice(0, 1)}
           </div>
           <div className="text-left text-xs">
-            <div className="font-semibold text-slate-800 leading-none">
-              {currentRole === 'owner' ? 'মো. শাহাদাত হোসেন' : 'কামরুল হাসান'}
-            </div>
+            <div className="font-semibold text-slate-800 leading-none">{label}</div>
             <div className="text-[10px] text-slate-500 mt-0.5">
-              {currentRole === 'owner' ? 'দোকান মালিক (Admin)' : 'বিক্রয় কর্মী (POS)'}
+              {currentRole === "owner"
+                ? "দোকান মালিক (Admin)"
+                : "কর্মচারী অ্যাকাউন্ট"}
             </div>
           </div>
         </div>
+
+        <button
+          type="button"
+          onClick={onLogout}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          title="লগআউট"
+        >
+          <LogOut className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">লগআউট</span>
+        </button>
       </div>
     </header>
   );
