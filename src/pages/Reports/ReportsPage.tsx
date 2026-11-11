@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState } from "react";
 import {
   BarChart3,
   Calendar,
@@ -10,21 +10,42 @@ import {
   Info,
   DollarSign,
   PieChart,
-} from 'lucide-react';
-import { UserRole } from '../../types';
+} from "lucide-react";
+import { UserRole } from "../../types";
 
 interface ReportsPageProps {
   currentRole: UserRole;
+  permissions: {
+    view: boolean;
+    manage: boolean;
+  };
 }
 
-export const ReportsPage: React.FC<ReportsPageProps> = ({ currentRole }) => {
-  const [reportPeriod, setReportPeriod] = useState<'daily' | 'monthly'>('daily');
+export const ReportsPage: React.FC<ReportsPageProps> = ({
+  currentRole,
+  permissions,
+}) => {
+  const [reportPeriod, setReportPeriod] = useState<"daily" | "monthly">(
+    "daily",
+  );
+  const canViewReports = currentRole === "owner" || permissions?.view === true;
+
+  if (!canViewReports) {
+    return (
+      <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
+        <h2 className="text-lg font-bold text-slate-900">Access Denied</h2>
+        <p className="text-sm text-slate-500 mt-2">
+          আপনার এই রিপোর্ট দেখার অনুমতি নেই।
+        </p>
+      </div>
+    );
+  }
 
   // Realistic sample financial dataset for Bangladesh grocery store
   const data =
-    reportPeriod === 'daily'
+    reportPeriod === "daily"
       ? {
-          periodLabel: 'আজকের রিপোর্ট (২৭ অক্টোবর ২০২৬)',
+          periodLabel: "আজকের রিপোর্ট (২৭ অক্টোবর ২০২৬)",
           salesRevenue: 3085,
           cogs: 2856,
           grossProfit: 229,
@@ -38,7 +59,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentRole }) => {
           totalInvoices: 3,
         }
       : {
-          periodLabel: 'চলতি অক্টোবর মাসের সারসংক্ষেপ (১ - ২৭ অক্টোবর ২০২৬)',
+          periodLabel: "চলতি অক্টোবর মাসের সারসংক্ষেপ (১ - ২৭ অক্টোবর ২০২৬)",
           salesRevenue: 184500,
           cogs: 165800,
           grossProfit: 18700,
@@ -61,28 +82,29 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentRole }) => {
             রিপোর্ট ও লাভ-ক্ষতির বিশ্লেষণ (Financial Reports)
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            দোকানের মোট বিক্রি, ক্রয়মূল্য (COGS), পরিচালন ব্যয় ও প্রকৃত লাভ-ক্ষতি
+            দোকানের মোট বিক্রি, ক্রয়মূল্য (COGS), পরিচালন ব্যয় ও প্রকৃত
+            লাভ-ক্ষতি
           </p>
         </div>
 
         {/* Period Switcher */}
         <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 shrink-0">
           <button
-            onClick={() => setReportPeriod('daily')}
+            onClick={() => setReportPeriod("daily")}
             className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-              reportPeriod === 'daily'
-                ? 'bg-white text-slate-900 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
+              reportPeriod === "daily"
+                ? "bg-white text-slate-900 shadow-xs"
+                : "text-slate-600 hover:text-slate-900"
             }`}
           >
             আজকের রিপোর্ট
           </button>
           <button
-            onClick={() => setReportPeriod('monthly')}
+            onClick={() => setReportPeriod("monthly")}
             className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-              reportPeriod === 'monthly'
-                ? 'bg-white text-slate-900 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
+              reportPeriod === "monthly"
+                ? "bg-white text-slate-900 shadow-xs"
+                : "text-slate-600 hover:text-slate-900"
             }`}
           >
             চলতি মাসের হিসাব
@@ -94,8 +116,11 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentRole }) => {
       <div className="bg-amber-50/90 border border-amber-200 rounded-xl p-3.5 flex items-start gap-3 text-xs text-amber-900">
         <Info className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
         <div className="leading-relaxed">
-          <span className="font-bold">নোট (Phase 1 ডেমো ভিউ):</span>{' '}
-          নিচের হিসাব ও সংখ্যাগুলো প্রোটোটাইপ প্রদর্শনীর জন্য প্রদত্ত নমুনা মান (Demonstration Data)। কোনো অবস্থাতেই এগুলো দোকানের প্রকৃত ফাইনান্সিয়াল রেকর্ড নয়। Phase 2-তে ক্লাউড ফায়ারবেস থেকে স্বয়ংক্রিয়ভাবে নির্ভুল ডাটা ক্যালকুলেট করা হবে।
+          <span className="font-bold">নোট (Phase 1 ডেমো ভিউ):</span> নিচের হিসাব
+          ও সংখ্যাগুলো প্রোটোটাইপ প্রদর্শনীর জন্য প্রদত্ত নমুনা মান
+          (Demonstration Data)। কোনো অবস্থাতেই এগুলো দোকানের প্রকৃত ফাইনান্সিয়াল
+          রেকর্ড নয়। Phase 2-তে ক্লাউড ফায়ারবেস থেকে স্বয়ংক্রিয়ভাবে নির্ভুল ডাটা
+          ক্যালকুলেট করা হবে।
         </div>
       </div>
 
@@ -125,7 +150,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentRole }) => {
               </p>
             </div>
             <span className="text-base font-bold text-slate-900 tabular-nums">
-              ৳{data.salesRevenue.toLocaleString('bn-BD')}
+              ৳{data.salesRevenue.toLocaleString("bn-BD")}
             </span>
           </div>
 
@@ -140,7 +165,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentRole }) => {
               </p>
             </div>
             <span className="text-base font-bold text-rose-800 tabular-nums">
-              - ৳{data.cogs.toLocaleString('bn-BD')}
+              - ৳{data.cogs.toLocaleString("bn-BD")}
             </span>
           </div>
 
@@ -155,7 +180,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentRole }) => {
               </p>
             </div>
             <span className="text-lg font-extrabold text-blue-900 tabular-nums">
-              ৳{data.grossProfit.toLocaleString('bn-BD')}
+              ৳{data.grossProfit.toLocaleString("bn-BD")}
             </span>
           </div>
 
@@ -170,7 +195,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentRole }) => {
               </p>
             </div>
             <span className="text-base font-bold text-amber-800 tabular-nums">
-              - ৳{data.expenses.toLocaleString('bn-BD')}
+              - ৳{data.expenses.toLocaleString("bn-BD")}
             </span>
           </div>
 
@@ -178,8 +203,8 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentRole }) => {
           <div
             className={`flex items-center justify-between p-3.5 rounded-xl border ${
               data.netProfit >= 0
-                ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
-                : 'bg-rose-50 border-rose-300 text-rose-950'
+                ? "bg-emerald-50 border-emerald-300 text-emerald-950"
+                : "bg-rose-50 border-rose-300 text-rose-950"
             }`}
           >
             <div>
@@ -188,13 +213,13 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentRole }) => {
               </div>
               <p className="text-[11px] opacity-80">
                 {data.netProfit >= 0
-                  ? 'দোকানের সকল খরচ বাদ দেওয়ার পর চূড়ান্ত নিট উদ্বৃত্ত'
-                  : 'খরচের পরিমাণ সাময়িকভাবে বেশি থাকায় নিট ব্যবধান'}
+                  ? "দোকানের সকল খরচ বাদ দেওয়ার পর চূড়ান্ত নিট উদ্বৃত্ত"
+                  : "খরচের পরিমাণ সাময়িকভাবে বেশি থাকায় নিট ব্যবধান"}
               </p>
             </div>
             <div className="text-right">
               <span className="text-xl font-black tabular-nums">
-                ৳{data.netProfit.toLocaleString('bn-BD')}
+                ৳{data.netProfit.toLocaleString("bn-BD")}
               </span>
             </div>
           </div>
@@ -210,11 +235,12 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentRole }) => {
               গ্রাহকদের কাছে বর্তমান মোট বাকি (Accounts Receivable)
             </h3>
             <span className="text-[11px] text-rose-700 font-bold tabular-nums">
-              ৳{data.customerTotalDues.toLocaleString('bn-BD')}
+              ৳{data.customerTotalDues.toLocaleString("bn-BD")}
             </span>
           </div>
           <p className="text-[11px] text-slate-500 leading-relaxed">
-            এটি দোকানের সম্পদ (Asset)। যখন কাস্টমার এই বাকি টাকা পরিশোধ করবেন, তখন নগদ ক্যাশ বাড়বে কিন্তু নতুন বিক্রি বা লাভ হিসেবে ধরা হবে না।
+            এটি দোকানের সম্পদ (Asset)। যখন কাস্টমার এই বাকি টাকা পরিশোধ করবেন,
+            তখন নগদ ক্যাশ বাড়বে কিন্তু নতুন বিক্রি বা লাভ হিসেবে ধরা হবে না।
           </p>
         </div>
 
@@ -225,11 +251,12 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentRole }) => {
               মহাজনদের কাছে বর্তমান মোট দেনা (Accounts Payable)
             </h3>
             <span className="text-[11px] text-rose-700 font-bold tabular-nums">
-              ৳{data.supplierTotalDues.toLocaleString('bn-BD')}
+              ৳{data.supplierTotalDues.toLocaleString("bn-BD")}
             </span>
           </div>
           <p className="text-[11px] text-slate-500 leading-relaxed">
-            এটি দোকানের দায় (Liability)। পণ্য কেনার সময় তা স্টকে যোগ হয়েছে। পরবর্তীতে টাকা দিলে তা সরাসরি দেনা কমাবে, দ্বিতীয়বার খরচ হবে না।
+            এটি দোকানের দায় (Liability)। পণ্য কেনার সময় তা স্টকে যোগ হয়েছে।
+            পরবর্তীতে টাকা দিলে তা সরাসরি দেনা কমাবে, দ্বিতীয়বার খরচ হবে না।
           </p>
         </div>
       </div>

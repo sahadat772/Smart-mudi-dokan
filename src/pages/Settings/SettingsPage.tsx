@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState } from "react";
 import {
   Settings,
   Store,
@@ -10,25 +10,31 @@ import {
   Save,
   CheckCircle2,
   AlertCircle,
-} from 'lucide-react';
-import { ShopSettings, UserRole } from '../../types';
+} from "lucide-react";
+import { ShopSettings, UserRole } from "../../types";
 
 interface SettingsPageProps {
   settings: ShopSettings;
   onUpdateSettings: (settings: ShopSettings) => void;
   currentRole: UserRole;
+  permissions: {
+    view: boolean;
+    manage: boolean;
+  };
 }
 
 export const SettingsPage: React.FC<SettingsPageProps> = ({
   settings,
   onUpdateSettings,
   currentRole,
+  permissions,
 }) => {
   const [formData, setFormData] = useState<ShopSettings>({ ...settings });
   const [isSaved, setIsSaved] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (currentRole !== "owner") return;
     onUpdateSettings(formData);
     setIsSaved(true);
     setTimeout(() => setIsSaved(false), 3000);
@@ -37,54 +43,67 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   // Role permissions matrix mockup for Phase 1 / Phase 2
   const permissionMatrix = [
     {
-      feature: 'পিওএস (POS) দ্রুত বিক্রি সম্পন্ন করা',
+      feature: "পিওএস (POS) দ্রুত বিক্রি সম্পন্ন করা",
       owner: true,
       employee: true,
-      note: 'উভয়ের জন্য উন্মুক্ত',
+      note: "উভয়ের জন্য উন্মুক্ত",
     },
     {
-      feature: 'পণ্য ও বর্তমান স্টক সংখ্যা দেখা',
+      feature: "পণ্য ও বর্তমান স্টক সংখ্যা দেখা",
       owner: true,
       employee: true,
-      note: 'দোকানে মাল আছে কি না যাচাই করতে',
+      note: "দোকানে মাল আছে কি না যাচাই করতে",
     },
     {
-      feature: 'পণ্যের পাইকারি ক্রয়মূল্য (Cost Price) দেখা',
+      feature: "পণ্যের পাইকারি ক্রয়মূল্য (Cost Price) দেখা",
       owner: true,
       employee: false,
-      note: 'কর্মচারীর কাছে ক্রয়মূল্য গোপন থাকবে',
+      note: "কর্মচারীর কাছে ক্রয়মূল্য গোপন থাকবে",
     },
     {
-      feature: 'গ্রাহকের বাকির খাতা ও আদায় লিপিবদ্ধ করা',
+      feature: "গ্রাহকের বাকির খাতা ও আদায় লিপিবদ্ধ করা",
       owner: true,
       employee: true,
-      note: 'নগদ আদায় এন্ট্রি অনুমোদিত',
+      note: "নগদ আদায় এন্ট্রি অনুমোদিত",
     },
     {
-      feature: 'দৈনন্দিন দোকান খরচ (Expenses) যুক্ত করা',
+      feature: "দৈনন্দিন দোকান খরচ (Expenses) যুক্ত করা",
       owner: true,
       employee: true,
-      note: 'চা-নাস্তা বা ভ্যান ভাড়া এন্ট্রি',
+      note: "চা-নাস্তা বা ভ্যান ভাড়া এন্ট্রি",
     },
     {
-      feature: 'মোট লাভ, COGS ও নিট প্রফিট রিপোর্ট দেখা',
+      feature: "মোট লাভ, COGS ও নিট প্রফিট রিপোর্ট দেখা",
       owner: true,
       employee: false,
-      note: 'শুধুমাত্র মালিকের জন্য সংরক্ষিত',
+      note: "শুধুমাত্র মালিকের জন্য সংরক্ষিত",
     },
     {
-      feature: 'নতুন পণ্য তৈরি বা বিক্রয়মূল্য পরিবর্তন',
+      feature: "নতুন পণ্য তৈরি বা বিক্রয়মূল্য পরিবর্তন",
       owner: true,
       employee: false,
-      note: 'মালিকের অনুমতি সাপেক্ষে',
+      note: "মালিকের অনুমতি সাপেক্ষে",
     },
     {
-      feature: 'কর্মচারী নিয়োগ ও সিস্টেম সেটিংস কনফিগারেশন',
+      feature: "কর্মচারী নিয়োগ ও সিস্টেম সেটিংস কনফিগারেশন",
       owner: true,
       employee: false,
-      note: 'শুধুমাত্র মালিকের নিয়ন্ত্রণ',
+      note: "শুধুমাত্র মালিকের নিয়ন্ত্রণ",
     },
   ];
+  const canAccessSettings =
+    currentRole === "owner" && permissions?.view !== false;
+
+  if (!canAccessSettings) {
+    return (
+      <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
+        <h2 className="text-xl font-bold text-slate-800">Access Denied</h2>
+        <p className="text-slate-500 mt-2">
+          শুধুমাত্র দোকানের মালিক Settings দেখতে পারবেন।
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -104,8 +123,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       <div className="bg-blue-50 border border-blue-200 rounded-xl p-3.5 flex items-start gap-3 text-xs text-blue-900">
         <Lock className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
         <div className="leading-relaxed">
-          <span className="font-bold">সিকিউরিটি ও রোল আর্কিটেকচার:</span>{' '}
-          Phase 1-এ এটি ইউআই প্রিভিউ। Phase 2-এ যখন Firebase Authentication ও Cloud Firestore যুক্ত করা হবে, তখন শুধুমাত্র ক্লায়েন্ট ইউআই হাইড নয়, বরং <strong>Firestore Security Rules</strong> এবং ব্যাকএন্ড টোকেন যাচাইয়ের মাধ্যমে ডেটা নিরাপত্তা নিশ্চিত করা হবে।
+          <span className="font-bold">সিকিউরিটি ও রোল আর্কিটেকচার:</span> Phase
+          1-এ এটি ইউআই প্রিভিউ। Phase 2-এ যখন Firebase Authentication ও Cloud
+          Firestore যুক্ত করা হবে, তখন শুধুমাত্র ক্লায়েন্ট ইউআই হাইড নয়, বরং{" "}
+          <strong>Firestore Security Rules</strong> এবং ব্যাকএন্ড টোকেন যাচাইয়ের
+          মাধ্যমে ডেটা নিরাপত্তা নিশ্চিত করা হবে।
         </div>
       </div>
 
@@ -178,7 +200,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 </label>
                 <input
                   type="text"
-                  value={formData.vatNumber || ''}
+                  value={formData.vatNumber || ""}
                   onChange={(e) =>
                     setFormData({ ...formData, vatNumber: e.target.value })
                   }
@@ -209,7 +231,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 </label>
                 <input
                   type="text"
-                  value={formData.secondaryPhone || ''}
+                  value={formData.secondaryPhone || ""}
                   onChange={(e) =>
                     setFormData({ ...formData, secondaryPhone: e.target.value })
                   }

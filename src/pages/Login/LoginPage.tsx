@@ -22,7 +22,7 @@ import { auth, db } from "../../firebase";
 import { UserRole } from "../../types";
 
 interface LoginPageProps {
-  onLoginSuccess: (role: UserRole) => void;
+  onLoginSuccess: (role: UserRole, mustChangePassword: boolean) => void;
   currentRole: UserRole;
 }
 
@@ -116,7 +116,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
 
       console.log("LOGIN: Profile verified successfully");
 
-      onLoginSuccess(userData.role as UserRole);
+      onLoginSuccess(
+        userData.role as UserRole,
+        userData.role === "employee" && userData.mustChangePassword === true,
+      );
     } catch (err: any) {
       console.error("LOGIN ERROR DETAILS:", {
         code: err.code,

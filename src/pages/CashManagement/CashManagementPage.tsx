@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState } from "react";
 import {
   Landmark,
   Coins,
@@ -10,29 +10,39 @@ import {
   Scale,
   CheckCircle,
   AlertTriangle,
-} from 'lucide-react';
-import { CashSession, UserRole } from '../../types';
+} from "lucide-react";
+import { CashSession, UserRole } from "../../types";
 
 interface CashManagementPageProps {
   cashSession: CashSession;
   currentRole: UserRole;
+  permissions: {
+    view: boolean;
+    manage: boolean;
+  };
   onUpdateActualCash: (amount: number) => void;
 }
 
 export const CashManagementPage: React.FC<CashManagementPageProps> = ({
   cashSession,
   currentRole,
+  permissions,
   onUpdateActualCash,
 }) => {
   const [actualCashInput, setActualCashInput] = useState<number>(
-    cashSession.actualClosingCash || cashSession.expectedClosingCash
+    cashSession.actualClosingCash || cashSession.expectedClosingCash,
   );
   const [isReconciled, setIsReconciled] = useState(false);
 
   const discrepancy = actualCashInput - cashSession.expectedClosingCash;
 
+  const canManageCash = currentRole === "owner" || permissions?.manage === true;
+
   const handleReconcile = (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!canManageCash) return;
+
     onUpdateActualCash(actualCashInput);
     setIsReconciled(true);
   };
@@ -46,7 +56,8 @@ export const CashManagementPage: React.FC<CashManagementPageProps> = ({
             ক্যাশ ও ক্যাশবক্স ব্যবস্থাপনা (Cash & Accounts)
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            দোকানের দৈনিক নগদ ক্যাশবক্স ক্লোজিং, ড্রয়ার হিসাব ও ডিজিটাল ব্যালেন্স
+            দোকানের দৈনিক নগদ ক্যাশবক্স ক্লোজিং, ড্রয়ার হিসাব ও ডিজিটাল
+            ব্যালেন্স
           </p>
         </div>
 
@@ -67,9 +78,11 @@ export const CashManagementPage: React.FC<CashManagementPageProps> = ({
             </span>
           </div>
           <div className="text-xl font-bold text-slate-900 tabular-nums">
-            ৳{cashSession.expectedClosingCash.toLocaleString('bn-BD')}
+            ৳{cashSession.expectedClosingCash.toLocaleString("bn-BD")}
           </div>
-          <div className="text-[11px] text-slate-500 mt-1">দোকানের ক্যাশবক্সে থাকার কথা</div>
+          <div className="text-[11px] text-slate-500 mt-1">
+            দোকানের ক্যাশবক্সে থাকার কথা
+          </div>
         </div>
 
         {/* bKash Merchant / Personal Account */}
@@ -81,9 +94,11 @@ export const CashManagementPage: React.FC<CashManagementPageProps> = ({
             </span>
           </div>
           <div className="text-xl font-bold text-pink-900 tabular-nums">
-            ৳{cashSession.bKashBalance.toLocaleString('bn-BD')}
+            ৳{cashSession.bKashBalance.toLocaleString("bn-BD")}
           </div>
-          <div className="text-[11px] text-slate-500 mt-1">০১৭১১-XXXXXX (মার্চেন্ট)</div>
+          <div className="text-[11px] text-slate-500 mt-1">
+            ০১৭১১-XXXXXX (মার্চেন্ট)
+          </div>
         </div>
 
         {/* Nagad Account */}
@@ -95,9 +110,11 @@ export const CashManagementPage: React.FC<CashManagementPageProps> = ({
             </span>
           </div>
           <div className="text-xl font-bold text-amber-900 tabular-nums">
-            ৳{cashSession.nagadBalance.toLocaleString('bn-BD')}
+            ৳{cashSession.nagadBalance.toLocaleString("bn-BD")}
           </div>
-          <div className="text-[11px] text-slate-500 mt-1">০১৮২২-XXXXXX (উদ্যোক্তা)</div>
+          <div className="text-[11px] text-slate-500 mt-1">
+            ০১৮২২-XXXXXX (উদ্যোক্তা)
+          </div>
         </div>
 
         {/* Bank Account */}
@@ -109,9 +126,11 @@ export const CashManagementPage: React.FC<CashManagementPageProps> = ({
             </span>
           </div>
           <div className="text-xl font-bold text-blue-900 tabular-nums">
-            ৳{cashSession.bankBalance.toLocaleString('bn-BD')}
+            ৳{cashSession.bankBalance.toLocaleString("bn-BD")}
           </div>
-          <div className="text-[11px] text-slate-500 mt-1">ইসলামী ব্যাংক (চলতি হিসাব)</div>
+          <div className="text-[11px] text-slate-500 mt-1">
+            ইসলামী ব্যাংক (চলতি হিসাব)
+          </div>
         </div>
       </div>
 
@@ -123,7 +142,9 @@ export const CashManagementPage: React.FC<CashManagementPageProps> = ({
             <h2 className="font-bold text-xs text-slate-900">
               আজকের ক্যাশ ড্রয়ার হিসাব (Cash Flow Equation)
             </h2>
-            <span className="text-[11px] text-slate-500">স্বয়ংক্রিয় ব্যালেন্স শিট</span>
+            <span className="text-[11px] text-slate-500">
+              স্বয়ংক্রিয় ব্যালেন্স শিট
+            </span>
           </div>
 
           <div className="p-5 space-y-3 text-xs">
@@ -136,7 +157,7 @@ export const CashManagementPage: React.FC<CashManagementPageProps> = ({
                 </span>
               </div>
               <span className="font-bold text-slate-900 tabular-nums">
-                +৳{cashSession.openingCash.toLocaleString('bn-BD')}
+                +৳{cashSession.openingCash.toLocaleString("bn-BD")}
               </span>
             </div>
 
@@ -148,11 +169,13 @@ export const CashManagementPage: React.FC<CashManagementPageProps> = ({
                   <span className="font-semibold text-emerald-950">
                     আজকের সরাসরি নগদ বিক্রি
                   </span>
-                  <div className="text-[10px] text-emerald-700">POS সেলস থেকে ড্রয়ারে প্রাপ্ত</div>
+                  <div className="text-[10px] text-emerald-700">
+                    POS সেলস থেকে ড্রয়ারে প্রাপ্ত
+                  </div>
                 </div>
               </div>
               <span className="font-bold text-emerald-800 tabular-nums">
-                +৳{cashSession.cashSales.toLocaleString('bn-BD')}
+                +৳{cashSession.cashSales.toLocaleString("bn-BD")}
               </span>
             </div>
 
@@ -164,11 +187,13 @@ export const CashManagementPage: React.FC<CashManagementPageProps> = ({
                   <span className="font-semibold text-blue-950">
                     গ্রাহকদের আগের বাকি আদায় (Cash In)
                   </span>
-                  <div className="text-[10px] text-blue-700">বাকি খাতা থেকে নগদে প্রাপ্ত</div>
+                  <div className="text-[10px] text-blue-700">
+                    বাকি খাতা থেকে নগদে প্রাপ্ত
+                  </div>
                 </div>
               </div>
               <span className="font-bold text-blue-800 tabular-nums">
-                +৳{cashSession.cashDueCollected.toLocaleString('bn-BD')}
+                +৳{cashSession.cashDueCollected.toLocaleString("bn-BD")}
               </span>
             </div>
 
@@ -180,11 +205,13 @@ export const CashManagementPage: React.FC<CashManagementPageProps> = ({
                   <span className="font-semibold text-rose-950">
                     ক্যাশ ড্রয়ার থেকে দোকানের খরচ (Cash Out)
                   </span>
-                  <div className="text-[10px] text-rose-700">ভ্যান ভাড়া ও চা আপ্যায়ন</div>
+                  <div className="text-[10px] text-rose-700">
+                    ভ্যান ভাড়া ও চা আপ্যায়ন
+                  </div>
                 </div>
               </div>
               <span className="font-bold text-rose-800 tabular-nums">
-                -৳{cashSession.cashExpenses.toLocaleString('bn-BD')}
+                -৳{cashSession.cashExpenses.toLocaleString("bn-BD")}
               </span>
             </div>
 
@@ -196,11 +223,13 @@ export const CashManagementPage: React.FC<CashManagementPageProps> = ({
                   <span className="font-semibold text-amber-950">
                     মহাজন / সাপ্লায়ারকে নগদ পরিশোধ
                   </span>
-                  <div className="text-[10px] text-amber-700">চালান বা বকেয়া বাবদ</div>
+                  <div className="text-[10px] text-amber-700">
+                    চালান বা বকেয়া বাবদ
+                  </div>
                 </div>
               </div>
               <span className="font-bold text-amber-800 tabular-nums">
-                -৳{cashSession.cashSupplierPaid.toLocaleString('bn-BD')}
+                -৳{cashSession.cashSupplierPaid.toLocaleString("bn-BD")}
               </span>
             </div>
 
@@ -210,7 +239,7 @@ export const CashManagementPage: React.FC<CashManagementPageProps> = ({
                 প্রত্যাশিত সমাপনী ক্যাশ (Expected Closing Balance)
               </span>
               <span className="text-emerald-700 tabular-nums text-base">
-                ৳{cashSession.expectedClosingCash.toLocaleString('bn-BD')}
+                ৳{cashSession.expectedClosingCash.toLocaleString("bn-BD")}
               </span>
             </div>
           </div>
@@ -227,7 +256,9 @@ export const CashManagementPage: React.FC<CashManagementPageProps> = ({
 
           <div className="p-5 space-y-4 text-xs">
             <p className="text-slate-600 text-[11px] leading-relaxed">
-              দোকান বন্ধ করার সময় ক্যাশবক্সের প্রকৃত নোট ও কয়েন গুণে নিচে লিখুন। সিস্টেম স্বয়ংক্রিয়ভাবে প্রত্যাশিত ক্যাশের সাথে তুলনা করে অমিল (Discrepancy) যাচাই করবে।
+              দোকান বন্ধ করার সময় ক্যাশবক্সের প্রকৃত নোট ও কয়েন গুণে নিচে লিখুন।
+              সিস্টেম স্বয়ংক্রিয়ভাবে প্রত্যাশিত ক্যাশের সাথে তুলনা করে অমিল
+              (Discrepancy) যাচাই করবে।
             </p>
 
             <form onSubmit={handleReconcile} className="space-y-4">
@@ -243,8 +274,11 @@ export const CashManagementPage: React.FC<CashManagementPageProps> = ({
                     type="number"
                     min="0"
                     required
-                    value={actualCashInput || ''}
-                    onChange={(e) => setActualCashInput(Number(e.target.value) || 0)}
+                    value={actualCashInput || ""}
+                    disabled={!canManageCash}
+                    onChange={(e) =>
+                      setActualCashInput(Number(e.target.value) || 0)
+                    }
                     className="w-full pl-8 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-base font-bold text-slate-900 tabular-nums focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   />
                 </div>
@@ -254,22 +288,23 @@ export const CashManagementPage: React.FC<CashManagementPageProps> = ({
               <div
                 className={`p-3 rounded-lg border text-xs flex items-center justify-between ${
                   discrepancy === 0
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                    ? "bg-emerald-50 border-emerald-200 text-emerald-900"
                     : discrepancy > 0
-                    ? 'bg-blue-50 border-blue-200 text-blue-900'
-                    : 'bg-rose-50 border-rose-200 text-rose-900'
+                      ? "bg-blue-50 border-blue-200 text-blue-900"
+                      : "bg-rose-50 border-rose-200 text-rose-900"
                 }`}
               >
                 <div>
                   <span className="font-semibold block">
                     {discrepancy === 0
-                      ? 'ক্যাশ সম্পূর্ণ মিলেছে (Perfect Match)'
+                      ? "ক্যাশ সম্পূর্ণ মিলেছে (Perfect Match)"
                       : discrepancy > 0
-                      ? 'ক্যাশবক্সে অতিরিক্ত টাকা রয়েছে (Surplus)'
-                      : 'ক্যাশবক্সে টাকা কম রয়েছে (Shortage)'}
+                        ? "ক্যাশবক্সে অতিরিক্ত টাকা রয়েছে (Surplus)"
+                        : "ক্যাশবক্সে টাকা কম রয়েছে (Shortage)"}
                   </span>
                   <span className="text-[10px] text-slate-500">
-                    প্রত্যাশিত: ৳{cashSession.expectedClosingCash} বনাম প্রকৃত: ৳{actualCashInput}
+                    প্রত্যাশিত: ৳{cashSession.expectedClosingCash} বনাম প্রকৃত:
+                    ৳{actualCashInput}
                   </span>
                 </div>
                 <span className="font-bold tabular-nums text-sm">
@@ -288,6 +323,7 @@ export const CashManagementPage: React.FC<CashManagementPageProps> = ({
 
               <button
                 type="submit"
+                disabled={!canManageCash}
                 className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg shadow-xs flex items-center justify-center gap-2 transition-colors cursor-pointer"
               >
                 <CheckCircle className="w-4 h-4" />

@@ -46,6 +46,7 @@ import { ReportsPage } from "./pages/Reports/ReportsPage";
 import { SettingsPage } from "./pages/Settings/SettingsPage";
 import { LoginPage } from "./pages/Login/LoginPage";
 import StaffManagement from "./pages/Staff/StaffManagement";
+import { ChangePasswordPage } from "./pages/ChangePassword/ChangePasswordPage";
 
 export default function App() {
   // Firebase Authentication State
@@ -110,6 +111,7 @@ export default function App() {
   // Navigation & Role
   const [currentPage, setCurrentPage] = useState<NavPageId>("dashboard");
   const [currentRole, setCurrentRole] = useState<UserRole | null>(null);
+  const [mustChangePassword, setMustChangePassword] = useState(false);
   const [userPermissions, setUserPermissions] = useState<
     Record<string, { view: boolean; manage: boolean }>
   >({});
@@ -320,9 +322,11 @@ export default function App() {
     return (
       <LoginPage
         currentRole="owner"
-        onLoginSuccess={(role) => {
+        onLoginSuccess={(role, needsPasswordChange) => {
           setCurrentRole(role);
-          setCurrentPage("dashboard");
+          setMustChangePassword(needsPasswordChange);
+
+          setCurrentPage(needsPasswordChange ? "change-password" : "dashboard");
         }}
       />
     );
@@ -459,12 +463,27 @@ export default function App() {
               <CashManagementPage
                 cashSession={cashSession}
                 currentRole={currentRole}
+                permissions={
+                  currentRole === "owner"
+                    ? { view: true, manage: true }
+                    : (userPermissions.cash ?? { view: false, manage: false })
+                }
                 onUpdateActualCash={handleUpdateActualCash}
               />
             )}
 
             {currentPage === "reports" && currentRole === "owner" && (
-              <ReportsPage currentRole={currentRole} />
+              <ReportsPage
+                currentRole={currentRole}
+                permissions={
+                  currentRole === "owner"
+                    ? { view: true, manage: true }
+                    : (userPermissions.reports ?? {
+                        view: false,
+                        manage: false,
+                      })
+                }
+              />
             )}
 
             {currentPage === "settings" && (
@@ -472,6 +491,14 @@ export default function App() {
                 settings={shopSettings}
                 onUpdateSettings={(s) => setShopSettings(s)}
                 currentRole={currentRole}
+                permissions={
+                  currentRole === "owner"
+                    ? { view: true, manage: true }
+                    : (userPermissions.settings ?? {
+                        view: false,
+                        manage: false,
+                      })
+                }
               />
             )}
 
@@ -484,6 +511,17 @@ export default function App() {
                 currentRole={currentRole}
               />
             )}
+
+            {currentPage === "change-password" &&
+              currentRole === "employee" &&
+              mustChangePassword && (
+                <ChangePasswordPage
+                  onPasswordChanged={() => {
+                    setMustChangePassword(false);
+                    setCurrentPage("dashboard");
+                  }}
+                />
+              )}
           </main>
         </div>
       </div>

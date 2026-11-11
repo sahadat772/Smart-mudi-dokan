@@ -31,7 +31,8 @@ export type NavPageId =
   | "reports"
   | "staff"
   | "settings"
-  | "login";
+  | "login"
+  | "change-password";
 
 interface ModulePermission {
   view: boolean;
@@ -160,6 +161,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           label: "লগইন স্ক্রিন",
           sublabel: "অ্যাকাউন্ট ইন্টারফেস",
           icon: LogIn,
+        },
+        {
+          id: "change-password",
+          label: "পাসওয়ার্ড পরিবর্তন",
+          sublabel: "নতুন পাসওয়ার্ড সেট করুন",
+          icon: CircleAlert,
         },
       ],
     },
