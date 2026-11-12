@@ -119,6 +119,57 @@ function validatePermissions(value: unknown): PermissionSet | null {
 
 const shopId = () => process.env.SHOP_ID || "default";
 
+function formatLastLogin(value: unknown): string {
+  if (
+    value &&
+    typeof value === "object" &&
+    "toDate" in value &&
+    typeof (value as { toDate: () => Date }).toDate === "function"
+  ) {
+    return (value as { toDate: () => Date }).toDate().toLocaleString();
+  }
+  return "Never";
+}
+
+/** List all employees for this shop (Admin SDK — not client Firestore). */
+router.get("/", verifyOwner, async (_req, res) => {
+  try {
+    const snapshot = await adminDb
+      .collection("users")
+      .where("role", "==", "employee")
+      .get();
+
+    const employees = snapshot.docs
+      .map((docSnap) => {
+        const data = docSnap.data();
+        return {
+          uid: docSnap.id,
+          name: data.displayName || "Unnamed Employee",
+          email: data.email || "",
+          jobRole: data.jobRole || "custom",
+          active: data.active === true,
+          mustChangePassword: data.mustChangePassword === true,
+          shopId: data.shopId || shopId(),
+          permissions: data.permissions || emptyPermissions(),
+          lastLoginAt: formatLastLogin(data.lastLoginAt),
+        };
+      })
+      .filter((emp) => emp.shopId === shopId());
+
+    return res.json({
+      success: true,
+      employees,
+    });
+  } catch (error) {
+    console.error("Staff list failed:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to load staff list.",
+    });
+  }
+});
+
 router.post("/", verifyOwner, async (req, res) => {
   let createdUid: string | null = null;
 
@@ -275,7 +326,115 @@ router.post("/", verifyOwner, async (req, res) => {
   }
 });
 
-// Employee: Complete mandatory first-login password change
+/** Activate or deactivate an employee. Deactivate disables Auth + revokes tokens. */
+router.patch("/:uid/status", verifyOwner, async (req, res) => {
+  try {
+    const { uid } = req.params;
+    const { active } = req.body;
+
+    if (typeof active !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        message: "active must be a boolean.",
+      });
+    }
+
+    if (process.env.OWNER_UID && uid === process.env.OWNER_UID) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot change status of the owner account.",
+      });
+    }
+
+    const userRef = adminDb.collection("users").doc(uid);
+    const userSnap = await userRef.get();
+
+    if (!userSnap.exists || userSnap.data()?.role !== "employee") {
+      return res.status(404).json({
+        success: false,
+        message: "Employee not found.",
+      });
+    }
+
+    await adminAuth.updateUser(uid, { disabled: !active });
+
+    if (!active) {
+      await adminAuth.revokeRefreshTokens(uid);
+    }
+
+    await userRef.update({
+      active,
+      statusUpdatedAt: FieldValue.serverTimestamp(),
+    });
+
+    return res.json({
+      success: true,
+      message: active
+        ? "Employee activated successfully."
+        : "Employee deactivated. Existing sessions will be rejected.",
+      active,
+    });
+  } catch (error) {
+    console.error("Staff status update failed:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to update employee status.",
+    });
+  }
+});
+
+/** Update employee permissions. */
+router.patch("/:uid/permissions", verifyOwner, async (req, res) => {
+  try {
+    const { uid } = req.params;
+    const { permissions, jobRole } = req.body;
+
+    const validated = validatePermissions(permissions);
+
+    if (!validated) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid permission configuration.",
+      });
+    }
+
+    const userRef = adminDb.collection("users").doc(uid);
+    const userSnap = await userRef.get();
+
+    if (!userSnap.exists || userSnap.data()?.role !== "employee") {
+      return res.status(404).json({
+        success: false,
+        message: "Employee not found.",
+      });
+    }
+
+    const update: Record<string, unknown> = {
+      permissions: validated,
+      permissionsUpdatedAt: FieldValue.serverTimestamp(),
+    };
+
+    if (typeof jobRole === "string") {
+      update.jobRole = jobRole;
+    }
+
+    await userRef.update(update);
+
+    return res.json({
+      success: true,
+      message: "Permissions updated successfully.",
+      permissions: validated,
+    });
+  } catch (error) {
+    console.error("Staff permissions update failed:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to update permissions.",
+    });
+  }
+});
+
 router.post("/complete-first-login", verifyUser, async (req, res) => {
   try {
     const uid = req.user!.uid;

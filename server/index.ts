@@ -3,6 +3,7 @@ import dotenv from "dotenv";
 import cors from "cors";
 import { adminAuth, adminDb } from "./firebaseAdmin.js";
 import staffRoutes from "./staffRoutes.js";
+import authRoutes from "./authRoutes.js";
 
 dotenv.config({ path: "server/.env" });
 
@@ -21,6 +22,7 @@ app.use(
 );
 
 app.use(express.json());
+app.use("/api/auth", authRoutes);
 app.use("/api/staff", staffRoutes);
 
 app.get("/api/health", (_req, res) => {
