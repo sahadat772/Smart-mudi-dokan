@@ -1,20 +1,12 @@
 import React, { useState } from "react";
-import {
-  Search,
-  Plus,
-  Filter,
-  AlertTriangle,
-  Edit2,
-  Package,
-  Layers,
-  ArrowUpDown,
-  Check,
-} from "lucide-react";
+import { Search, Plus, AlertTriangle, Edit2 } from "lucide-react";
 import { Product, ProductCategory, ProductUnit, UserRole } from "../../types";
 import { Modal } from "../../components/common/Modal";
+import { apiFetch } from "../../api/client";
 
 interface ProductsPageProps {
   products: Product[];
+  loading?: boolean;
   currentRole: UserRole;
   permissions?: {
     view: boolean;
@@ -22,24 +14,30 @@ interface ProductsPageProps {
   };
   onAddProduct: (product: Product) => void;
   onUpdateProduct: (product: Product) => void;
+  onReload?: () => Promise<void> | void;
 }
 
 export const ProductsPage: React.FC<ProductsPageProps> = ({
   products,
+  loading = false,
   currentRole,
   permissions,
   onAddProduct,
   onUpdateProduct,
+  onReload,
 }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [isLowStockOnly, setIsLowStockOnly] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [pageMessage, setPageMessage] = useState<string | null>(null);
+
   const canManageProducts =
     currentRole === "owner" || permissions?.manage === true;
 
-  // Form states
   const [formData, setFormData] = useState({
     name: "",
     category: "চাল ও ডাল" as ProductCategory,
@@ -92,15 +90,16 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
 
   const handleOpenAddModal = () => {
     setEditingProduct(null);
+    setFormError(null);
     setFormData({
       name: "",
       category: "চাল ও ডাল",
       unit: "কেজি",
-      sku: `PROD-${Date.now().toString().slice(-4)}`,
+      sku: `PROD-${Date.now().toString().slice(-6)}`,
       barcode: "",
       costPrice: 0,
       sellingPrice: 0,
-      stockQuantity: 10,
+      stockQuantity: 0,
       lowStockThreshold: 10,
       shelfLocation: "",
     });
@@ -109,13 +108,14 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
 
   const handleOpenEditModal = (product: Product) => {
     setEditingProduct(product);
+    setFormError(null);
     setFormData({
       name: product.name,
       category: product.category,
       unit: product.unit,
       sku: product.sku,
       barcode: product.barcode || "",
-      costPrice: product.costPrice,
+      costPrice: product.costPrice ?? 0,
       sellingPrice: product.sellingPrice,
       stockQuantity: product.stockQuantity,
       lowStockThreshold: product.lowStockThreshold,
@@ -124,60 +124,105 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
     setIsModalOpen(true);
   };
 
-  const handleFormSubmit = (e: React.FormEvent) => {
+  const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError(null);
 
     if (!canManageProducts) {
-      alert("আপনার পণ্য পরিবর্তন করার অনুমতি নেই।");
+      setFormError("আপনার পণ্য পরিবর্তন করার অনুমতি নেই।");
       return;
     }
 
-    if (!formData.name) return;
+    if (!formData.name.trim()) return;
 
-    if (editingProduct) {
-      onUpdateProduct({
-        ...editingProduct,
-        ...formData,
-        updatedAt: "২০২৬-১০-২৭",
-      });
-    } else {
-      onAddProduct({
-        id: `prod-${Date.now()}`,
-        ...formData,
-        updatedAt: "২০২৬-১০-২৭",
-      });
+    setSaving(true);
+
+    try {
+      if (editingProduct) {
+        const data = await apiFetch<{ product: Product }>(
+          `/api/products/${editingProduct.id}`,
+          {
+            method: "PUT",
+            body: JSON.stringify(formData),
+          },
+        );
+        onUpdateProduct(data.product);
+        setPageMessage("পণ্য আপডেট হয়েছে।");
+      } else {
+        const data = await apiFetch<{ product: Product }>("/api/products", {
+          method: "POST",
+          body: JSON.stringify(formData),
+        });
+        onAddProduct(data.product);
+        setPageMessage("নতুন পণ্য যোগ হয়েছে।");
+      }
+
+      setIsModalOpen(false);
+    } catch (err) {
+      setFormError(
+        err instanceof Error ? err.message : "সংরক্ষণ করা যায়নি।",
+      );
+    } finally {
+      setSaving(false);
     }
+  };
 
-    setIsModalOpen(false);
+  const handleSeedDemo = async () => {
+    if (!canManageProducts || currentRole !== "owner") return;
+    setPageMessage(null);
+    try {
+      await apiFetch("/api/products/seed-demo", { method: "POST" });
+      setPageMessage("ডেমো পণ্য যোগ হয়েছে।");
+      await onReload?.();
+    } catch (err) {
+      setPageMessage(
+        err instanceof Error ? err.message : "ডেমো সিড করা যায়নি।",
+      );
+    }
   };
 
   return (
     <div className="space-y-6">
-      {/* Page Title & Add Product Button */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-slate-200">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
             পণ্য ও স্টক তালিকা
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            দোকানের সকল পণ্য, ক্রয়মূল্য, বিক্রয়মূল্য ও বর্তমান ইনভেন্টরি
+            Firestore-এ সংরক্ষিত পণ্য, ক্রয়মূল্য, বিক্রয়মূল্য ও স্টক
           </p>
         </div>
 
-        <button
-          onClick={handleOpenAddModal}
-          disabled={!canManageProducts}
-          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors self-start sm:self-auto cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <Plus className="w-4 h-4" />
-          <span>নতুন পণ্য যুক্ত করুন</span>
-        </button>
+        <div className="flex flex-wrap gap-2">
+          {currentRole === "owner" && products.length === 0 && !loading && (
+            <button
+              type="button"
+              onClick={() => void handleSeedDemo()}
+              className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-semibold border border-slate-200"
+            >
+              ডেমো পণ্য লোড করুন
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleOpenAddModal}
+            disabled={!canManageProducts}
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Plus className="w-4 h-4" />
+            <span>নতুন পণ্য যুক্ত করুন</span>
+          </button>
+        </div>
       </div>
 
-      {/* Filter and Search Bar */}
+      {pageMessage && (
+        <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-800">
+          {pageMessage}
+        </div>
+      )}
+
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
         <div className="flex flex-col md:flex-row gap-3">
-          {/* Search box */}
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
             <input
@@ -189,7 +234,6 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
             />
           </div>
 
-          {/* Category Dropdown */}
           <div className="w-full md:w-56 shrink-0">
             <select
               value={selectedCategory}
@@ -205,10 +249,10 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
             </select>
           </div>
 
-          {/* Low stock toggle */}
           <button
+            type="button"
             onClick={() => setIsLowStockOnly(!isLowStockOnly)}
-            className={`px-3 py-2 rounded-lg text-xs font-medium border flex items-center justify-center gap-1.5 transition-colors cursor-pointer shrink-0 ${
+            className={`px-3 py-2 rounded-lg text-xs font-medium border flex items-center justify-center gap-1.5 transition-colors shrink-0 ${
               isLowStockOnly
                 ? "bg-amber-100 text-amber-900 border-amber-300 font-semibold"
                 : "bg-slate-50 text-slate-600 border-slate-300 hover:bg-slate-100"
@@ -220,7 +264,6 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
         </div>
       </div>
 
-      {/* Products Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
@@ -231,21 +274,23 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
                 <th className="px-4 py-3 font-medium text-center">একক</th>
                 {currentRole === "owner" && (
                   <th className="px-4 py-3 font-medium text-right text-indigo-900">
-                    ক্রয়মূল্য (COGS)
+                    ক্রয়মূল্য
                   </th>
                 )}
-                <th className="px-4 py-3 font-medium text-right">
-                  বিক্রয়মূল্য
-                </th>
-                <th className="px-4 py-3 font-medium text-center">
-                  বর্তমান স্টক
-                </th>
+                <th className="px-4 py-3 font-medium text-right">বিক্রয়মূল্য</th>
+                <th className="px-4 py-3 font-medium text-center">স্টক</th>
                 <th className="px-4 py-3 font-medium">অবস্থান</th>
                 <th className="px-4 py-3 font-medium text-right">অ্যাকশন</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredProducts.length === 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan={8} className="py-12 text-center text-slate-400">
+                    পণ্য লোড হচ্ছে...
+                  </td>
+                </tr>
+              ) : filteredProducts.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="py-12 text-center text-slate-400">
                     কোন পণ্য পাওয়া যায়নি
@@ -265,30 +310,24 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
                           {p.name}
                         </div>
                         <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-                          SKU: {p.sku} {p.barcode && `· বারকোড: ${p.barcode}`}
+                          SKU: {p.sku}{" "}
+                          {p.barcode && `· বারকোড: ${p.barcode}`}
                         </div>
                       </td>
-
-                      <td className="px-4 py-3">
-                        <span className="text-slate-600 text-[11px]">
-                          {p.category}
-                        </span>
+                      <td className="px-4 py-3 text-slate-600 text-[11px]">
+                        {p.category}
                       </td>
-
                       <td className="px-4 py-3 text-center text-slate-600">
                         {p.unit}
                       </td>
-
                       {currentRole === "owner" && (
                         <td className="px-4 py-3 text-right font-medium text-indigo-900 tabular-nums">
-                          ৳{p.costPrice}
+                          ৳{p.costPrice ?? "—"}
                         </td>
                       )}
-
                       <td className="px-4 py-3 text-right font-bold text-slate-900 tabular-nums">
                         ৳{p.sellingPrice}
                       </td>
-
                       <td className="px-4 py-3 text-center">
                         <span
                           className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-xs font-bold tabular-nums ${
@@ -303,16 +342,15 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
                           {p.stockQuantity} {p.unit}
                         </span>
                       </td>
-
                       <td className="px-4 py-3 text-slate-500 text-[11px]">
                         {p.shelfLocation || "—"}
                       </td>
-
                       <td className="px-4 py-3 text-right">
                         <button
+                          type="button"
                           onClick={() => handleOpenEditModal(p)}
                           disabled={!canManageProducts}
-                          className="p-1.5 text-slate-600 hover:text-emerald-700 hover:bg-slate-100 rounded transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="p-1.5 text-slate-600 hover:text-emerald-700 hover:bg-slate-100 rounded transition-colors disabled:opacity-50"
                           title="সম্পাদনা করুন"
                         >
                           <Edit2 className="w-4 h-4" />
@@ -330,19 +368,24 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
           <span>মোট প্রদর্শিত পণ্য: {filteredProducts.length} টি</span>
           <span>
             {currentRole === "employee" &&
-              "* কর্মচারী মোডে ক্রয়মূল্য গোপন রাখা হয়েছে (মালিক মোডে সুইচ করে ক্রয়মূল্য দেখতে পারবেন)।"}
+              "* কর্মচারী মোডে ক্রয়মূল্য লুকানো থাকে।"}
           </span>
         </div>
       </div>
 
-      {/* Add / Edit Product Modal */}
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         title={editingProduct ? "পণ্য সম্পাদনা" : "নতুন পণ্য যোগ করুন"}
-        subtitle="মুদি দোকানের স্টক ও মূল্য তালিকা নির্ধারণ (Phase 1 UI)"
+        subtitle="ডেটা Firestore-এ সংরক্ষিত হবে"
       >
         <form onSubmit={handleFormSubmit} className="space-y-4 text-xs">
+          {formError && (
+            <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800">
+              {formError}
+            </div>
+          )}
+
           <div>
             <label className="block font-medium text-slate-700 mb-1">
               পণ্যের নাম *
@@ -355,7 +398,6 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
                 setFormData({ ...formData, name: e.target.value })
               }
               className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              placeholder="যেমন: মিনিকেট চাল (৫ কেজি প্যাকেট)"
             />
           </div>
 
@@ -381,10 +423,9 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
                 ))}
               </select>
             </div>
-
             <div>
               <label className="block font-medium text-slate-700 mb-1">
-                পরিমাপের একক (Unit)
+                একক
               </label>
               <select
                 value={formData.unit}
@@ -407,8 +448,36 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
+              <label className="block font-medium text-slate-700 mb-1">SKU *</label>
+              <input
+                type="text"
+                required
+                value={formData.sku}
+                onChange={(e) =>
+                  setFormData({ ...formData, sku: e.target.value })
+                }
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+            <div>
               <label className="block font-medium text-slate-700 mb-1">
-                ক্রয়মূল্য (টাকা / একক) *
+                বারকোড
+              </label>
+              <input
+                type="text"
+                value={formData.barcode}
+                onChange={(e) =>
+                  setFormData({ ...formData, barcode: e.target.value })
+                }
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block font-medium text-slate-700 mb-1">
+                ক্রয়মূল্য *
               </label>
               <input
                 type="number"
@@ -423,13 +492,11 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
                   })
                 }
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs tabular-nums focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                placeholder="৳ যেমন: ৭০"
               />
             </div>
-
             <div>
               <label className="block font-medium text-slate-700 mb-1">
-                বিক্রয়মূল্য (টাকা / একক) *
+                বিক্রয়মূল্য *
               </label>
               <input
                 type="number"
@@ -444,7 +511,6 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
                   })
                 }
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs tabular-nums focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                placeholder="৳ যেমন: ৮০"
               />
             </div>
           </div>
@@ -452,7 +518,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block font-medium text-slate-700 mb-1">
-                বর্তমান স্টক পরিমাণ
+                স্টক
               </label>
               <input
                 type="number"
@@ -465,17 +531,15 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
                   })
                 }
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs tabular-nums focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                placeholder="যেমন: ৫০"
               />
             </div>
-
             <div>
               <label className="block font-medium text-slate-700 mb-1">
-                স্বল্প স্টকের অ্যালার্ট সীমা
+                লো-স্টক সীমা
               </label>
               <input
                 type="number"
-                min="1"
+                min="0"
                 value={formData.lowStockThreshold || ""}
                 onChange={(e) =>
                   setFormData({
@@ -484,55 +548,39 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
                   })
                 }
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs tabular-nums focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                placeholder="যেমন: ১০"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block font-medium text-slate-700 mb-1">
-                SKU / কোড
-              </label>
-              <input
-                type="text"
-                value={formData.sku}
-                onChange={(e) =>
-                  setFormData({ ...formData, sku: e.target.value })
-                }
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              />
-            </div>
-
-            <div>
-              <label className="block font-medium text-slate-700 mb-1">
-                দোকানের অবস্থান / তাক
-              </label>
-              <input
-                type="text"
-                value={formData.shelfLocation}
-                onChange={(e) =>
-                  setFormData({ ...formData, shelfLocation: e.target.value })
-                }
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                placeholder="যেমন: শেলফ A-3"
-              />
-            </div>
+          <div>
+            <label className="block font-medium text-slate-700 mb-1">
+              শেলফ অবস্থান
+            </label>
+            <input
+              type="text"
+              value={formData.shelfLocation}
+              onChange={(e) =>
+                setFormData({ ...formData, shelfLocation: e.target.value })
+              }
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
           </div>
 
-          <div className="pt-3 flex justify-end gap-2 border-t border-slate-200">
+          <div className="flex justify-end gap-2 pt-2">
             <button
               type="button"
               onClick={() => setIsModalOpen(false)}
-              className="px-4 py-2 border border-slate-300 text-slate-700 hover:bg-slate-100 rounded-lg text-xs font-medium cursor-pointer"
+              className="px-4 py-2 rounded-lg border border-slate-200 text-slate-700"
+              disabled={saving}
             >
               বাতিল
             </button>
             <button
               type="submit"
-              className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs cursor-pointer"
+              disabled={saving}
+              className="px-4 py-2 rounded-lg bg-emerald-600 text-white font-semibold disabled:opacity-50"
             >
-              {editingProduct ? "আপডেট করুন" : "সংরক্ষণ করুন (ডেমো)"}
+              {saving ? "সংরক্ষণ হচ্ছে..." : "সংরক্ষণ করুন"}
             </button>
           </div>
         </form>
