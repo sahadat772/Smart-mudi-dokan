@@ -5,7 +5,6 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import {
-  DEMO_PRODUCTS,
   DEMO_CUSTOMERS,
   DEMO_SUPPLIERS,
   DEMO_EXPENSES,
@@ -33,6 +32,7 @@ import { ReceiptModal } from "./components/pos/ReceiptModal";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "./firebase";
+import { apiFetch } from "./api/client";
 
 import { DashboardPage } from "./pages/Dashboard/DashboardPage";
 import { PosPage } from "./pages/POS/PosPage";
@@ -60,7 +60,9 @@ export default function App() {
   >({});
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  const [products, setProducts] = useState<Product[]>(DEMO_PRODUCTS);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [productsLoading, setProductsLoading] = useState(false);
+  const [productsError, setProductsError] = useState<string | null>(null);
   const [customers, setCustomers] = useState<Customer[]>(DEMO_CUSTOMERS);
   const [suppliers, setSuppliers] = useState<Supplier[]>(DEMO_SUPPLIERS);
   const [expenses, setExpenses] = useState<Expense[]>(DEMO_EXPENSES);
@@ -72,9 +74,7 @@ export default function App() {
   const [shopSettings, setShopSettings] =
     useState<ShopSettings>(DEMO_SHOP_SETTINGS);
 
-  const [receiptSale, setReceiptSale] = useState<Sale | null>(
-    DEMO_RECENT_SALES[0],
-  );
+  const [receiptSale, setReceiptSale] = useState<Sale | null>(null);
   const [isReceiptOpen, setIsReceiptOpen] = useState(false);
 
   const clearAuthState = useCallback(() => {
@@ -85,6 +85,25 @@ export default function App() {
     setDisplayName(undefined);
     setCurrentPage("dashboard");
     setIsMobileMenuOpen(false);
+    setProducts([]);
+    setProductsError(null);
+  }, []);
+
+  const loadProducts = useCallback(async () => {
+    setProductsLoading(true);
+    setProductsError(null);
+    try {
+      const data = await apiFetch<{ products: Product[] }>("/api/products");
+      setProducts(data.products || []);
+    } catch (error) {
+      console.error("Failed to load products:", error);
+      setProductsError(
+        error instanceof Error ? error.message : "পণ্য লোড করা যায়নি।",
+      );
+      setProducts([]);
+    } finally {
+      setProductsLoading(false);
+    }
   }, []);
 
   const handleLogout = useCallback(async () => {
@@ -155,6 +174,12 @@ export default function App() {
     return () => unsubscribe();
   }, [clearAuthState]);
 
+  // Load products after auth is ready and password gate is clear.
+  useEffect(() => {
+    if (!authUser || !currentRole || mustChangePassword) return;
+    void loadProducts();
+  }, [authUser, currentRole, mustChangePassword, loadProducts]);
+
   const canAccessPage = (page: NavPageId): boolean => {
     if (currentRole === "owner") return true;
 
@@ -222,11 +247,13 @@ export default function App() {
   };
 
   const handleAddProduct = (newProduct: Product) => {
-    setProducts([newProduct, ...products]);
+    setProducts((prev) => [newProduct, ...prev]);
   };
 
   const handleUpdateProduct = (updated: Product) => {
-    setProducts(products.map((p) => (p.id === updated.id ? updated : p)));
+    setProducts((prev) =>
+      prev.map((p) => (p.id === updated.id ? updated : p)),
+    );
   };
 
   const handleAddCustomer = (newCustomer: Customer) => {
@@ -347,7 +374,6 @@ export default function App() {
     );
   }
 
-  // Mandatory first-login password change blocks the rest of the app.
   if (mustChangePassword && currentRole === "employee") {
     return (
       <ChangePasswordPage
@@ -386,6 +412,19 @@ export default function App() {
           />
 
           <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
+            {productsError && (
+              <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900">
+                পণ্য লোড সমস্যা: {productsError}
+                <button
+                  type="button"
+                  onClick={() => void loadProducts()}
+                  className="ml-2 underline font-medium"
+                >
+                  আবার চেষ্টা
+                </button>
+              </div>
+            )}
+
             {currentPage === "dashboard" && (
               <DashboardPage
                 products={products}
@@ -418,6 +457,7 @@ export default function App() {
             {currentPage === "products" && (
               <ProductsPage
                 products={products}
+                loading={productsLoading}
                 currentRole={currentRole}
                 permissions={
                   currentRole === "owner"
@@ -429,6 +469,7 @@ export default function App() {
                 }
                 onAddProduct={handleAddProduct}
                 onUpdateProduct={handleUpdateProduct}
+                onReload={loadProducts}
               />
             )}
 
