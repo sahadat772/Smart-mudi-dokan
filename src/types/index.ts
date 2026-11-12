@@ -1,9 +1,8 @@
 /**
  * Smart Mudi Manager (স্মার্ট মুদি ম্যানেজার) - Data Types
- * Phase 1: Frontend prototype models prepared for future Firebase / Cloud Firestore integration
  */
 
-export type UserRole = 'owner' | 'employee';
+export type UserRole = "owner" | "employee";
 
 export interface UserProfile {
   id: string;
@@ -15,18 +14,27 @@ export interface UserProfile {
   assignedBranch?: string;
 }
 
-export type ProductCategory = 
-  | 'চাল ও ডাল'
-  | 'তেল ও ঘি'
-  | 'মসলা ও গুঁড়া'
-  | 'বিস্কুট ও স্ন্যাক্স'
-  | 'চা, কফি ও পানীয়'
-  | 'সাবান ও প্রসাধন'
-  | 'দুগ্ধজাত পণ্য ও ডিম'
-  | 'পরিষ্কারক সামগ্রী'
-  | 'অন্যান্য';
+export type ProductCategory =
+  | "চাল ও ডাল"
+  | "তেল ও ঘি"
+  | "মসলা ও গুঁড়া"
+  | "বিস্কুট ও স্ন্যাক্স"
+  | "চা, কফি ও পানীয়"
+  | "সাবান ও প্রসাধন"
+  | "দুগ্ধজাত পণ্য ও ডিম"
+  | "পরিষ্কারক সামগ্রী"
+  | "অন্যান্য";
 
-export type ProductUnit = 'কেজি' | 'গ্রাম' | 'লিটার' | 'মিলি' | 'প্যাকেট' | 'পিস' | 'ডজন' | 'বস্তা' | 'কার্টুন';
+export type ProductUnit =
+  | "কেজি"
+  | "গ্রাম"
+  | "লিটার"
+  | "মিলি"
+  | "প্যাকেট"
+  | "পিস"
+  | "ডজন"
+  | "বস্তা"
+  | "কার্টুন";
 
 export interface Product {
   id: string;
@@ -35,11 +43,13 @@ export interface Product {
   unit: ProductUnit;
   sku: string;
   barcode?: string;
-  costPrice: number;    // ক্রয়মূল্য (টাকা)
-  sellingPrice: number; // বিক্রয়মূল্য (টাকা)
+  /** Hidden from employees on the API response. */
+  costPrice?: number;
+  sellingPrice: number;
   stockQuantity: number;
   lowStockThreshold: number;
   shelfLocation?: string;
+  active?: boolean;
   updatedAt: string;
 }
 
@@ -49,10 +59,14 @@ export interface CartItem {
   unitPrice: number;
   discount: number;
   total: number;
-  costAtSale: number; // Accounting rule: sale preserves cost basis for COGS & gross profit
+  costAtSale: number;
 }
 
-export type PaymentMethod = 'নগদ (Cash)' | 'বিকাশ (bKash)' | 'নগদ (Nagad)' | 'ব্যাংক / কার্ড (Bank)';
+export type PaymentMethod =
+  | "নগদ (Cash)"
+  | "বিকাশ (bKash)"
+  | "নগদ (Nagad)"
+  | "ব্যাংক / কার্ড (Bank)";
 
 export interface PaymentSplit {
   method: PaymentMethod;
@@ -60,7 +74,7 @@ export interface PaymentSplit {
   transactionRef?: string;
 }
 
-export type SaleStatus = 'completed' | 'returned' | 'cancelled';
+export type SaleStatus = "completed" | "returned" | "cancelled";
 
 export interface Sale {
   id: string;
@@ -77,9 +91,9 @@ export interface Sale {
   dueAmount: number;
   payments: PaymentSplit[];
   status: SaleStatus;
-  soldBy: string; // Employee or Owner name
-  cogsTotal: number; // Total cost of goods sold
-  grossProfit: number; // grandTotal - cogsTotal
+  soldBy: string;
+  cogsTotal: number;
+  grossProfit: number;
 }
 
 export interface Customer {
@@ -89,7 +103,7 @@ export interface Customer {
   address?: string;
   totalPurchased: number;
   totalPaid: number;
-  currentDue: number; // বাকির স্থিতি
+  currentDue: number;
   lastTransactionDate: string;
 }
 
@@ -114,7 +128,7 @@ export interface Supplier {
   address?: string;
   totalSupplied: number;
   totalPaid: number;
-  outstandingBalance: number; // মহাজনের দেনা
+  outstandingBalance: number;
   lastPurchaseDate: string;
 }
 
@@ -139,18 +153,18 @@ export interface Purchase {
   dueAmount: number;
   paymentMethod: PaymentMethod;
   receivedBy: string;
-  status: 'received' | 'partial' | 'due';
+  status: "received" | "partial" | "due";
 }
 
-export type ExpenseCategory = 
-  | 'দোকান ভাড়া'
-  | 'বিদ্যুৎ বিল'
-  | 'কর্মচারীর বেতন'
-  | 'মালামাল পরিবহন'
-  | 'দোকান রক্ষণাবেক্ষণ'
-  | 'চা ও আপ্যায়ন'
-  | 'প্যাকেজিং ও ব্যাগ'
-  | 'অন্যান্য খরচ';
+export type ExpenseCategory =
+  | "দোকান ভাড়া"
+  | "বিদ্যুৎ বিল"
+  | "কর্মচারীর বেতন"
+  | "মালামাল পরিবহন"
+  | "দোকান রক্ষণাবেক্ষণ"
+  | "চা ও আপ্যায়ন"
+  | "প্যাকেজিং ও ব্যাগ"
+  | "অন্যান্য খরচ";
 
 export interface Expense {
   id: string;
