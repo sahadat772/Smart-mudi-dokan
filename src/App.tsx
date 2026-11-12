@@ -5,7 +5,6 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import {
-  DEMO_EXPENSES,
   DEMO_CASH_SESSION,
   DEMO_SHOP_SETTINGS,
 } from "./data/mockData";
@@ -62,7 +61,7 @@ export default function App() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [dueCollections, setDueCollections] = useState<DueCollection[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [expenses, setExpenses] = useState<Expense[]>(DEMO_EXPENSES);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
   const [cashSession, setCashSession] = useState<CashSession>(DEMO_CASH_SESSION);
   const [shopSettings, setShopSettings] = useState<ShopSettings>(DEMO_SHOP_SETTINGS);
   const [receiptSale, setReceiptSale] = useState<Sale | null>(null);
@@ -81,6 +80,7 @@ export default function App() {
     setCustomers([]);
     setDueCollections([]);
     setSuppliers([]);
+    setExpenses([]);
     setProductsError(null);
   }, []);
 
@@ -125,6 +125,16 @@ export default function App() {
     } catch (error) {
       console.error("Failed to load suppliers:", error);
       setSuppliers([]);
+    }
+  }, []);
+
+  const loadExpenses = useCallback(async () => {
+    try {
+      const data = await apiFetch<{ expenses: Expense[] }>("/api/expenses");
+      setExpenses(data.expenses || []);
+    } catch (error) {
+      console.error("Failed to load expenses:", error);
+      setExpenses([]);
     }
   }, []);
 
@@ -182,7 +192,8 @@ export default function App() {
     void loadSales();
     void loadCustomers();
     void loadSuppliers();
-  }, [authUser, currentRole, mustChangePassword, loadProducts, loadSales, loadCustomers, loadSuppliers]);
+    void loadExpenses();
+  }, [authUser, currentRole, mustChangePassword, loadProducts, loadSales, loadCustomers, loadSuppliers, loadExpenses]);
 
   const canAccessPage = (page: NavPageId): boolean => {
     if (currentRole === "owner") return true;
@@ -307,7 +318,7 @@ export default function App() {
   };
 
   const handleAddExpense = (expense: Expense) => {
-    setExpenses([expense, ...expenses]);
+    setExpenses((prev) => [expense, ...prev]);
     if (expense.paymentMethod === "নগদ (Cash)") {
       setCashSession((prev) => ({
         ...prev,
@@ -477,6 +488,7 @@ export default function App() {
                     : (userPermissions.expenses ?? { view: false, manage: false })
                 }
                 onAddExpense={handleAddExpense}
+                onReload={loadExpenses}
               />
             )}
             {currentPage === "cash" && (
