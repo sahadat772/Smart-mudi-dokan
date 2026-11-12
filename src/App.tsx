@@ -5,10 +5,8 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import {
-  DEMO_CUSTOMERS,
   DEMO_SUPPLIERS,
   DEMO_EXPENSES,
-  DEMO_DUE_COLLECTIONS,
   DEMO_CASH_SESSION,
   DEMO_SHOP_SETTINGS,
 } from "./data/mockData";
@@ -63,11 +61,10 @@ export default function App() {
   const [productsLoading, setProductsLoading] = useState(false);
   const [productsError, setProductsError] = useState<string | null>(null);
   const [recentSales, setRecentSales] = useState<Sale[]>([]);
-  const [customers, setCustomers] = useState<Customer[]>(DEMO_CUSTOMERS);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [dueCollections, setDueCollections] = useState<DueCollection[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>(DEMO_SUPPLIERS);
   const [expenses, setExpenses] = useState<Expense[]>(DEMO_EXPENSES);
-  const [dueCollections, setDueCollections] =
-    useState<DueCollection[]>(DEMO_DUE_COLLECTIONS);
   const [cashSession, setCashSession] =
     useState<CashSession>(DEMO_CASH_SESSION);
   const [shopSettings, setShopSettings] =
@@ -86,6 +83,8 @@ export default function App() {
     setIsMobileMenuOpen(false);
     setProducts([]);
     setRecentSales([]);
+    setCustomers([]);
+    setDueCollections([]);
     setProductsError(null);
   }, []);
 
@@ -112,7 +111,16 @@ export default function App() {
       setRecentSales(data.sales || []);
     } catch (error) {
       console.error("Failed to load sales:", error);
-      // Keep existing list; products already independent.
+    }
+  }, []);
+
+  const loadCustomers = useCallback(async () => {
+    try {
+      const data = await apiFetch<{ customers: Customer[] }>("/api/customers");
+      setCustomers(data.customers || []);
+    } catch (error) {
+      console.error("Failed to load customers:", error);
+      setCustomers([]);
     }
   }, []);
 
@@ -188,7 +196,15 @@ export default function App() {
     if (!authUser || !currentRole || mustChangePassword) return;
     void loadProducts();
     void loadSales();
-  }, [authUser, currentRole, mustChangePassword, loadProducts, loadSales]);
+    void loadCustomers();
+  }, [
+    authUser,
+    currentRole,
+    mustChangePassword,
+    loadProducts,
+    loadSales,
+    loadCustomers,
+  ]);
 
   const canAccessPage = (page: NavPageId): boolean => {
     if (currentRole === "owner") return true;
@@ -236,6 +252,22 @@ export default function App() {
       );
     }
 
+    // Optimistic customer due bump if credit sale
+    if (newSale.customerId && newSale.dueAmount > 0) {
+      setCustomers((prev) =>
+        prev.map((c) =>
+          c.id === newSale.customerId
+            ? {
+                ...c,
+                currentDue: c.currentDue + newSale.dueAmount,
+                totalPurchased: c.totalPurchased + newSale.grandTotal,
+                lastTransactionDate: newSale.createdAt,
+              }
+            : c,
+        ),
+      );
+    }
+
     const cashPaid = newSale.payments
       .filter((p) => p.method === "নগদ (Cash)")
       .reduce((s, p) => s + p.amount, 0);
@@ -263,25 +295,34 @@ export default function App() {
   };
 
   const handleAddCustomer = (newCustomer: Customer) => {
-    setCustomers([newCustomer, ...customers]);
+    setCustomers((prev) => [newCustomer, ...prev]);
   };
 
-  const handleCollectDue = (collection: DueCollection) => {
-    setDueCollections([collection, ...dueCollections]);
+  const handleCollectDue = (
+    collection: DueCollection,
+    updatedCustomer?: Customer,
+  ) => {
+    setDueCollections((prev) => [collection, ...prev]);
 
-    setCustomers((prev) =>
-      prev.map((cust) => {
-        if (cust.id === collection.customerId) {
-          return {
-            ...cust,
-            currentDue: collection.remainingDue,
-            totalPaid: cust.totalPaid + collection.amount,
-            lastTransactionDate: collection.date,
-          };
-        }
-        return cust;
-      }),
-    );
+    if (updatedCustomer) {
+      setCustomers((prev) =>
+        prev.map((c) => (c.id === updatedCustomer.id ? updatedCustomer : c)),
+      );
+    } else {
+      setCustomers((prev) =>
+        prev.map((cust) => {
+          if (cust.id === collection.customerId) {
+            return {
+              ...cust,
+              currentDue: collection.remainingDue,
+              totalPaid: cust.totalPaid + collection.amount,
+              lastTransactionDate: collection.date,
+            };
+          }
+          return cust;
+        }),
+      );
+    }
 
     if (collection.paymentMethod === "নগদ (Cash)") {
       setCashSession((prev) => ({
@@ -494,6 +535,7 @@ export default function App() {
                 }
                 onAddCustomer={handleAddCustomer}
                 onCollectDue={handleCollectDue}
+                onCollectionsLoaded={(list) => setDueCollections(list)}
               />
             )}
 
