@@ -6,6 +6,7 @@ import staffRoutes from "./staffRoutes.js";
 import authRoutes from "./authRoutes.js";
 import productRoutes from "./productRoutes.js";
 import saleRoutes from "./saleRoutes.js";
+import customerRoutes from "./customerRoutes.js";
 
 dotenv.config({ path: "server/.env" });
 
@@ -28,6 +29,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/staff", staffRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/sales", saleRoutes);
+app.use("/api/customers", customerRoutes);
 
 app.get("/api/health", (_req, res) => {
   res.json({
