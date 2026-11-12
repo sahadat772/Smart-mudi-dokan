@@ -3,9 +3,6 @@ import {
   Receipt,
   Plus,
   Filter,
-  Calendar,
-  Wallet,
-  TrendingDown,
   Building2,
   Zap,
   Users,
@@ -15,6 +12,7 @@ import {
 } from "lucide-react";
 import { Expense, ExpenseCategory, PaymentMethod, UserRole } from "../../types";
 import { Modal } from "../../components/common/Modal";
+import { apiFetch } from "../../api/client";
 
 interface ExpensesPageProps {
   expenses: Expense[];
@@ -24,6 +22,7 @@ interface ExpensesPageProps {
     manage: boolean;
   };
   onAddExpense: (expense: Expense) => void;
+  onReload?: () => void;
 }
 
 export const ExpensesPage: React.FC<ExpensesPageProps> = ({
@@ -34,14 +33,18 @@ export const ExpensesPage: React.FC<ExpensesPageProps> = ({
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const canManageExpenses =
     currentRole === "owner" || permissions?.manage === true;
+
+  const today = new Date().toISOString().slice(0, 10);
 
   const [formData, setFormData] = useState({
     category: "বিদ্যুৎ বিল" as ExpenseCategory,
     title: "",
     amount: 0,
-    date: "২০২৬-১০-২৭",
+    date: today,
     paymentMethod: "নগদ (Cash)" as PaymentMethod,
     note: "",
   });
@@ -63,28 +66,41 @@ export const ExpensesPage: React.FC<ExpensesPageProps> = ({
 
   const totalExpenseAmount = expenses.reduce((sum, e) => sum + e.amount, 0);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     if (!canManageExpenses) return;
     if (!formData.title || formData.amount <= 0) return;
 
-    const newExpense: Expense = {
-      id: `exp-${Date.now()}`,
-      ...formData,
-      recordedBy:
-        currentRole === "owner" ? "মো. শাহাদাত হোসেন" : "কামরুল হাসান",
-    };
+    setSaving(true);
+    try {
+      const data = await apiFetch<{ expense: Expense }>("/api/expenses", {
+        method: "POST",
+        body: JSON.stringify({
+          category: formData.category,
+          title: formData.title.trim(),
+          amount: formData.amount,
+          date: formData.date,
+          paymentMethod: formData.paymentMethod,
+          note: formData.note.trim(),
+        }),
+      });
 
-    onAddExpense(newExpense);
-    setIsModalOpen(false);
-    setFormData({
-      category: "দোকান রক্ষণাবেক্ষণ",
-      title: "",
-      amount: 0,
-      date: "২০২৬-১০-২৭",
-      paymentMethod: "নগদ (Cash)",
-      note: "",
-    });
+      onAddExpense(data.expense);
+      setIsModalOpen(false);
+      setFormData({
+        category: "দোকান রক্ষণাবেক্ষণ",
+        title: "",
+        amount: 0,
+        date: today,
+        paymentMethod: "নগদ (Cash)",
+        note: "",
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "খরচ সংরক্ষণ করা যায়নি।");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const getCategoryIcon = (cat: ExpenseCategory) => {
@@ -108,37 +124,38 @@ export const ExpensesPage: React.FC<ExpensesPageProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Title & Add Expense Button */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-slate-200">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
             দোকানের খরচের হিসাব (Expenses)
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            ভাড়া, বিদ্যুৎ, কর্মচারীর বেতন, মালামাল পরিবহন ও দৈনন্দিন খরচ
-            রেজিস্টার
+            ভাড়া, বিদ্যুৎ, বেতন ও দৈনন্দিন খরচ — Firestore-এ সংরক্ষিত
           </p>
         </div>
 
         <button
-          onClick={() => setIsModalOpen(true)}
+          type="button"
+          onClick={() => {
+            setError(null);
+            setIsModalOpen(true);
+          }}
           disabled={!canManageExpenses}
-          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors self-start sm:self-auto cursor-pointer"
+          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50"
         >
           <Plus className="w-4 h-4" />
           <span>নতুন খরচ লিখুন</span>
         </button>
       </div>
 
-      {/* Summary KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <div className="text-xs text-slate-500">মোট খরচ (রেকর্ডকৃত)</div>
+          <div className="text-xs text-slate-500">মোট খরচ</div>
           <div className="text-xl font-bold text-rose-700 mt-1 tabular-nums">
             ৳{totalExpenseAmount.toLocaleString("bn-BD")}
           </div>
           <div className="text-[11px] text-slate-500 mt-1">
-            {expenses.length} টি খরচের ভাউচার (ডেমো)
+            {expenses.length} টি ভাউচার
           </div>
         </div>
 
@@ -151,13 +168,10 @@ export const ExpensesPage: React.FC<ExpensesPageProps> = ({
               .reduce((s, e) => s + e.amount, 0)
               .toLocaleString("bn-BD")}
           </div>
-          <div className="text-[11px] text-slate-500 mt-1">
-            দোকানের ড্রয়ার থেকে নগদ খরচ
-          </div>
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <div className="text-xs text-slate-500">বিকাশ / ব্যাংকে পরিশোধিত</div>
+          <div className="text-xs text-slate-500">বিকাশ / ব্যাংক</div>
           <div className="text-xl font-bold text-slate-900 mt-1 tabular-nums">
             ৳
             {expenses
@@ -165,27 +179,22 @@ export const ExpensesPage: React.FC<ExpensesPageProps> = ({
               .reduce((s, e) => s + e.amount, 0)
               .toLocaleString("bn-BD")}
           </div>
-          <div className="text-[11px] text-slate-500 mt-1">
-            বিদ্যুৎ বিল ও অনলাইন পেমেন্ট
-          </div>
         </div>
       </div>
 
-      {/* Filter and Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-        {/* Filter bar */}
         <div className="p-3.5 border-b border-slate-200 bg-slate-50/70 flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <Filter className="w-4 h-4 text-slate-400" />
             <span className="text-xs font-semibold text-slate-700">
-              ক্যাটাগরি ফিল্টার:
+              ক্যাটাগরি:
             </span>
             <select
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
-              className="text-xs py-1.5 px-2 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              className="text-xs py-1.5 px-2 bg-white border border-slate-300 rounded-lg"
             >
-              <option value="all">সব ধরনের খরচ ({expenses.length})</option>
+              <option value="all">সব ({expenses.length})</option>
               {categories.map((c) => (
                 <option key={c} value={c}>
                   {c}
@@ -193,84 +202,90 @@ export const ExpensesPage: React.FC<ExpensesPageProps> = ({
               ))}
             </select>
           </div>
-
           <span className="text-xs text-slate-500">
-            প্রদর্শিত খরচ: {filteredExpenses.length} টি
+            দেখানো: {filteredExpenses.length}
           </span>
         </div>
 
-        {/* Expenses Table */}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50 text-slate-500 text-[11px] border-b border-slate-200">
               <tr>
                 <th className="px-4 py-3 font-medium">তারিখ</th>
-                <th className="px-4 py-3 font-medium">খরচের ধরন ও খাত</th>
-                <th className="px-4 py-3 font-medium">বিস্তারিত বিবরণ</th>
-                <th className="px-4 py-3 font-medium">পেমেন্ট মাধ্যম</th>
-                <th className="px-4 py-3 font-medium">এন্ট্রি করেছেন</th>
-                <th className="px-4 py-3 font-medium text-right">
-                  পরিমাণ (টাকা)
-                </th>
+                <th className="px-4 py-3 font-medium">খাত</th>
+                <th className="px-4 py-3 font-medium">বিবরণ</th>
+                <th className="px-4 py-3 font-medium">মাধ্যম</th>
+                <th className="px-4 py-3 font-medium">এন্ট্রি</th>
+                <th className="px-4 py-3 font-medium text-right">পরিমাণ</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredExpenses.map((exp) => (
-                <tr
-                  key={exp.id}
-                  className="hover:bg-slate-50/70 transition-colors"
-                >
-                  <td className="px-4 py-3 text-slate-600 tabular-nums">
-                    {exp.date}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      {getCategoryIcon(exp.category)}
-                      <span className="font-semibold text-slate-900">
-                        {exp.category}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="font-medium text-slate-800">
-                      {exp.title}
-                    </div>
-                    {exp.note && (
-                      <div className="text-[10px] text-slate-400 mt-0.5">
-                        নোট: {exp.note}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">
-                    <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-[11px]">
-                      {exp.paymentMethod}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-slate-500 text-[11px]">
-                    {exp.recordedBy}
-                  </td>
-                  <td className="px-4 py-3 text-right font-bold text-rose-700 tabular-nums text-sm">
-                    ৳{exp.amount.toLocaleString("bn-BD")}
+              {filteredExpenses.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={6}
+                    className="px-4 py-8 text-center text-slate-400"
+                  >
+                    কোনো খরচ নেই
                   </td>
                 </tr>
-              ))}
+              ) : (
+                filteredExpenses.map((exp) => (
+                  <tr key={exp.id} className="hover:bg-slate-50/70">
+                    <td className="px-4 py-3 text-slate-600 tabular-nums">
+                      {String(exp.date).slice(0, 10)}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        {getCategoryIcon(exp.category)}
+                        <span className="font-semibold text-slate-900">
+                          {exp.category}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="font-medium text-slate-800">{exp.title}</div>
+                      {exp.note && (
+                        <div className="text-[10px] text-slate-400 mt-0.5">
+                          {exp.note}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-slate-600">
+                      <span className="px-2 py-0.5 bg-slate-100 rounded text-[11px]">
+                        {exp.paymentMethod}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-slate-500 text-[11px]">
+                      {exp.recordedBy}
+                    </td>
+                    <td className="px-4 py-3 text-right font-bold text-rose-700 tabular-nums">
+                      ৳{exp.amount.toLocaleString("bn-BD")}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Add Expense Modal */}
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         title="নতুন খরচের এন্ট্রি"
-        subtitle="দোকানের দৈনন্দিন খরচের ভাউচার লিপিবদ্ধ করুন (Phase 1 UI)"
+        subtitle="Firestore-এ সংরক্ষিত হবে"
       >
         <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+          {error && (
+            <div className="p-2 rounded bg-rose-50 border border-rose-200 text-rose-800">
+              {error}
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block font-medium text-slate-700 mb-1">
-                খরচের ক্যাটাগরি *
+                ক্যাটাগরি *
               </label>
               <select
                 value={formData.category}
@@ -280,7 +295,7 @@ export const ExpensesPage: React.FC<ExpensesPageProps> = ({
                     category: e.target.value as ExpenseCategory,
                   })
                 }
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg"
               >
                 {categories.map((c) => (
                   <option key={c} value={c}>
@@ -289,25 +304,24 @@ export const ExpensesPage: React.FC<ExpensesPageProps> = ({
                 ))}
               </select>
             </div>
-
             <div>
               <label className="block font-medium text-slate-700 mb-1">
                 তারিখ *
               </label>
               <input
-                type="text"
+                type="date"
                 value={formData.date}
                 onChange={(e) =>
                   setFormData({ ...formData, date: e.target.value })
                 }
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs tabular-nums focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg"
               />
             </div>
           </div>
 
           <div>
             <label className="block font-medium text-slate-700 mb-1">
-              খরচের শিরোনাম / বিবরণ *
+              শিরোনাম *
             </label>
             <input
               type="text"
@@ -316,19 +330,19 @@ export const ExpensesPage: React.FC<ExpensesPageProps> = ({
               onChange={(e) =>
                 setFormData({ ...formData, title: e.target.value })
               }
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              placeholder="যেমন: কার্টুন লোডিং ও ভ্যান ভাড়া"
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg"
+              placeholder="যেমন: ভ্যান ভাড়া"
             />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block font-medium text-slate-700 mb-1">
-                টাকার পরিমাণ *
+                পরিমাণ *
               </label>
               <input
                 type="number"
-                min="1"
+                min={1}
                 required
                 value={formData.amount || ""}
                 onChange={(e) =>
@@ -337,14 +351,12 @@ export const ExpensesPage: React.FC<ExpensesPageProps> = ({
                     amount: Number(e.target.value) || 0,
                   })
                 }
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs tabular-nums font-bold text-rose-700 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                placeholder="৳ টাকার পরিমাণ"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-bold text-rose-700"
               />
             </div>
-
             <div>
               <label className="block font-medium text-slate-700 mb-1">
-                পরিশোধের মাধ্যম
+                মাধ্যম
               </label>
               <select
                 value={formData.paymentMethod}
@@ -354,28 +366,26 @@ export const ExpensesPage: React.FC<ExpensesPageProps> = ({
                     paymentMethod: e.target.value as PaymentMethod,
                   })
                 }
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg"
               >
-                <option value="নগদ (Cash)">নগদ ক্যাশবক্স (Cash)</option>
-                <option value="বিকাশ (bKash)">বিকাশ (bKash)</option>
-                <option value="নগদ (Nagad)">নগদ (Nagad)</option>
-                <option value="ব্যাংক / কার্ড (Bank)">ব্যাংক একাউন্ট</option>
+                <option value="নগদ (Cash)">নগদ</option>
+                <option value="বিকাশ (bKash)">বিকাশ</option>
+                <option value="নগদ (Nagad)">নগদ</option>
+                <option value="ব্যাংক / কার্ড (Bank)">ব্যাংক</option>
               </select>
             </div>
           </div>
 
           <div>
-            <label className="block font-medium text-slate-700 mb-1">
-              অতিরিক্ত নোট / ভাউচার রেফারেন্স
-            </label>
+            <label className="block font-medium text-slate-700 mb-1">নোট</label>
             <input
               type="text"
               value={formData.note}
               onChange={(e) =>
                 setFormData({ ...formData, note: e.target.value })
               }
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              placeholder="যেমন: ভাউচার নং ৪২"
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg"
+              placeholder="ভাউচার রেফারেন্স"
             />
           </div>
 
@@ -383,16 +393,16 @@ export const ExpensesPage: React.FC<ExpensesPageProps> = ({
             <button
               type="button"
               onClick={() => setIsModalOpen(false)}
-              className="px-4 py-2 border border-slate-300 text-slate-700 hover:bg-slate-100 rounded-lg text-xs font-medium cursor-pointer"
+              className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg text-xs"
             >
               বাতিল
             </button>
             <button
               type="submit"
-              disabled={!canManageExpenses}
-              className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs cursor-pointer"
+              disabled={!canManageExpenses || saving}
+              className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold disabled:opacity-50"
             >
-              খরচ লিপিবদ্ধ করুন (ডেমো)
+              {saving ? "সংরক্ষণ..." : "খরচ লিপিবদ্ধ করুন"}
             </button>
           </div>
         </form>
