@@ -37,7 +37,7 @@ const shopId = () => process.env.SHOP_ID || "default";
 
 function toProduct(
   id: string,
-  data: FirebaseFirestore.DocumentData,
+  data: Record<string, any>,
   includeCost: boolean,
 ) {
   const updatedAt =
@@ -130,7 +130,6 @@ function parseProductBody(body: Record<string, unknown>, isUpdate: boolean) {
 
 router.use(verifyUser);
 
-/** List products for this shop. Cost price only for owners. */
 router.get("/", requirePermission("products", "view"), async (req, res) => {
   try {
     const authReq = req as AuthenticatedRequest;
@@ -156,159 +155,6 @@ router.get("/", requirePermission("products", "view"), async (req, res) => {
   }
 });
 
-/** Create product. */
-router.post("/", requirePermission("products", "manage"), async (req, res) => {
-  try {
-    const parsed = parseProductBody(req.body || {}, false);
-    if (parsed.error || !parsed.data) {
-      return res.status(400).json({ success: false, message: parsed.error });
-    }
-
-    // Unique SKU per shop
-    const existingSku = await adminDb
-      .collection("products")
-      .where("shopId", "==", shopId())
-      .where("sku", "==", parsed.data.sku)
-      .limit(1)
-      .get();
-
-    if (!existingSku.empty) {
-      return res.status(409).json({
-        success: false,
-        message: "A product with this SKU already exists.",
-      });
-    }
-
-    const docRef = adminDb.collection("products").doc();
-    const payload = {
-      ...parsed.data,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    };
-
-    await docRef.set(payload);
-
-    const authReq = req as AuthenticatedRequest;
-    return res.status(201).json({
-      success: true,
-      message: "Product created successfully.",
-      product: toProduct(
-        docRef.id,
-        { ...parsed.data, updatedAt: new Date() },
-        authReq.user?.role === "owner",
-      ),
-    });
-  } catch (error) {
-    console.error("Create product failed:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Unable to create product.",
-    });
-  }
-});
-
-/** Update product. */
-router.put(
-  "/:id",
-  requirePermission("products", "manage"),
-  async (req, res) => {
-    try {
-      const { id } = req.params;
-      const parsed = parseProductBody(req.body || {}, true);
-
-      if (parsed.error || !parsed.data) {
-        return res.status(400).json({ success: false, message: parsed.error });
-      }
-
-      const docRef = adminDb.collection("products").doc(id);
-      const snap = await docRef.get();
-
-      if (!snap.exists || snap.data()?.shopId !== shopId()) {
-        return res.status(404).json({
-          success: false,
-          message: "Product not found.",
-        });
-      }
-
-      // SKU uniqueness if changed
-      if (parsed.data.sku !== snap.data()?.sku) {
-        const existingSku = await adminDb
-          .collection("products")
-          .where("shopId", "==", shopId())
-          .where("sku", "==", parsed.data.sku)
-          .limit(1)
-          .get();
-
-        if (!existingSku.empty && existingSku.docs[0].id !== id) {
-          return res.status(409).json({
-            success: false,
-            message: "A product with this SKU already exists.",
-          });
-        }
-      }
-
-      await docRef.update({
-        ...parsed.data,
-        updatedAt: FieldValue.serverTimestamp(),
-      });
-
-      const authReq = req as AuthenticatedRequest;
-      return res.json({
-        success: true,
-        message: "Product updated successfully.",
-        product: toProduct(
-          id,
-          { ...snap.data(), ...parsed.data, updatedAt: new Date() },
-          authReq.user?.role === "owner",
-        ),
-      });
-    } catch (error) {
-      console.error("Update product failed:", error);
-      return res.status(500).json({
-        success: false,
-        message: "Unable to update product.",
-      });
-    }
-  },
-);
-
-/** Soft-delete product. */
-router.delete(
-  "/:id",
-  requirePermission("products", "manage"),
-  async (req, res) => {
-    try {
-      const { id } = req.params;
-      const docRef = adminDb.collection("products").doc(id);
-      const snap = await docRef.get();
-
-      if (!snap.exists || snap.data()?.shopId !== shopId()) {
-        return res.status(404).json({
-          success: false,
-          message: "Product not found.",
-        });
-      }
-
-      await docRef.update({
-        active: false,
-        updatedAt: FieldValue.serverTimestamp(),
-      });
-
-      return res.json({
-        success: true,
-        message: "Product deleted successfully.",
-      });
-    } catch (error) {
-      console.error("Delete product failed:", error);
-      return res.status(500).json({
-        success: false,
-        message: "Unable to delete product.",
-      });
-    }
-  },
-);
-
-/** Optional: seed demo products once for empty shop (owner only). */
 router.post(
   "/seed-demo",
   requirePermission("products", "manage"),
@@ -420,6 +266,151 @@ router.post(
       return res.status(500).json({
         success: false,
         message: "Unable to seed demo products.",
+      });
+    }
+  },
+);
+
+router.post("/", requirePermission("products", "manage"), async (req, res) => {
+  try {
+    const parsed = parseProductBody(req.body || {}, false);
+    if (parsed.error || !parsed.data) {
+      return res.status(400).json({ success: false, message: parsed.error });
+    }
+
+    const existingSku = await adminDb
+      .collection("products")
+      .where("shopId", "==", shopId())
+      .where("sku", "==", parsed.data.sku)
+      .limit(1)
+      .get();
+
+    if (!existingSku.empty) {
+      return res.status(409).json({
+        success: false,
+        message: "A product with this SKU already exists.",
+      });
+    }
+
+    const docRef = adminDb.collection("products").doc();
+    await docRef.set({
+      ...parsed.data,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    const authReq = req as AuthenticatedRequest;
+    return res.status(201).json({
+      success: true,
+      message: "Product created successfully.",
+      product: toProduct(
+        docRef.id,
+        { ...parsed.data, updatedAt: new Date() },
+        authReq.user?.role === "owner",
+      ),
+    });
+  } catch (error) {
+    console.error("Create product failed:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to create product.",
+    });
+  }
+});
+
+router.put(
+  "/:id",
+  requirePermission("products", "manage"),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const parsed = parseProductBody(req.body || {}, true);
+
+      if (parsed.error || !parsed.data) {
+        return res.status(400).json({ success: false, message: parsed.error });
+      }
+
+      const docRef = adminDb.collection("products").doc(id);
+      const snap = await docRef.get();
+
+      if (!snap.exists || snap.data()?.shopId !== shopId()) {
+        return res.status(404).json({
+          success: false,
+          message: "Product not found.",
+        });
+      }
+
+      if (parsed.data.sku !== snap.data()?.sku) {
+        const existingSku = await adminDb
+          .collection("products")
+          .where("shopId", "==", shopId())
+          .where("sku", "==", parsed.data.sku)
+          .limit(1)
+          .get();
+
+        if (!existingSku.empty && existingSku.docs[0].id !== id) {
+          return res.status(409).json({
+            success: false,
+            message: "A product with this SKU already exists.",
+          });
+        }
+      }
+
+      await docRef.update({
+        ...parsed.data,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      const authReq = req as AuthenticatedRequest;
+      return res.json({
+        success: true,
+        message: "Product updated successfully.",
+        product: toProduct(
+          id,
+          { ...snap.data(), ...parsed.data, updatedAt: new Date() },
+          authReq.user?.role === "owner",
+        ),
+      });
+    } catch (error) {
+      console.error("Update product failed:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Unable to update product.",
+      });
+    }
+  },
+);
+
+router.delete(
+  "/:id",
+  requirePermission("products", "manage"),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const docRef = adminDb.collection("products").doc(id);
+      const snap = await docRef.get();
+
+      if (!snap.exists || snap.data()?.shopId !== shopId()) {
+        return res.status(404).json({
+          success: false,
+          message: "Product not found.",
+        });
+      }
+
+      await docRef.update({
+        active: false,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      return res.json({
+        success: true,
+        message: "Product deleted successfully.",
+      });
+    } catch (error) {
+      console.error("Delete product failed:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Unable to delete product.",
       });
     }
   },
