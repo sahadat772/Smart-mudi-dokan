@@ -64,6 +64,9 @@ export const ChangePasswordPage: React.FC<ChangePasswordPageProps> = ({
         throw new Error(result.message || "Password পরিবর্তন করা যায়নি।");
       }
 
+      // Force refresh so subsequent API calls use an up-to-date token/session.
+      await user.getIdToken(true);
+
       setNewPassword("");
       setConfirmPassword("");
 
