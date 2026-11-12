@@ -4,10 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from "react";
-import {
-  DEMO_CASH_SESSION,
-  DEMO_SHOP_SETTINGS,
-} from "./data/mockData";
+import { DEMO_SHOP_SETTINGS } from "./data/mockData";
 import {
   Product,
   Customer,
@@ -43,6 +40,20 @@ import { LoginPage } from "./pages/Login/LoginPage";
 import StaffManagement from "./pages/Staff/StaffManagement";
 import { ChangePasswordPage } from "./pages/ChangePassword/ChangePasswordPage";
 
+const emptyCash: CashSession = {
+  date: new Date().toISOString().slice(0, 10),
+  openingCash: 0,
+  cashSales: 0,
+  cashDueCollected: 0,
+  cashSupplierPaid: 0,
+  cashExpenses: 0,
+  expectedClosingCash: 0,
+  bKashBalance: 0,
+  nagadBalance: 0,
+  bankBalance: 0,
+  isClosed: false,
+};
+
 export default function App() {
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -62,7 +73,7 @@ export default function App() {
   const [dueCollections, setDueCollections] = useState<DueCollection[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [cashSession, setCashSession] = useState<CashSession>(DEMO_CASH_SESSION);
+  const [cashSession, setCashSession] = useState<CashSession>(emptyCash);
   const [shopSettings, setShopSettings] = useState<ShopSettings>(DEMO_SHOP_SETTINGS);
   const [receiptSale, setReceiptSale] = useState<Sale | null>(null);
   const [isReceiptOpen, setIsReceiptOpen] = useState(false);
@@ -81,6 +92,7 @@ export default function App() {
     setDueCollections([]);
     setSuppliers([]);
     setExpenses([]);
+    setCashSession(emptyCash);
     setProductsError(null);
   }, []);
 
@@ -135,6 +147,15 @@ export default function App() {
     } catch (error) {
       console.error("Failed to load expenses:", error);
       setExpenses([]);
+    }
+  }, []);
+
+  const loadCashSession = useCallback(async () => {
+    try {
+      const data = await apiFetch<{ session: CashSession }>("/api/cash/today");
+      if (data.session) setCashSession(data.session);
+    } catch (error) {
+      console.error("Failed to load cash session:", error);
     }
   }, []);
 
@@ -193,7 +214,18 @@ export default function App() {
     void loadCustomers();
     void loadSuppliers();
     void loadExpenses();
-  }, [authUser, currentRole, mustChangePassword, loadProducts, loadSales, loadCustomers, loadSuppliers, loadExpenses]);
+    void loadCashSession();
+  }, [
+    authUser,
+    currentRole,
+    mustChangePassword,
+    loadProducts,
+    loadSales,
+    loadCustomers,
+    loadSuppliers,
+    loadExpenses,
+    loadCashSession,
+  ]);
 
   const canAccessPage = (page: NavPageId): boolean => {
     if (currentRole === "owner") return true;
@@ -237,7 +269,9 @@ export default function App() {
         ),
       );
     }
-    const cashPaid = newSale.payments.filter((p) => p.method === "নগদ (Cash)").reduce((s, p) => s + p.amount, 0);
+    const cashPaid = newSale.payments
+      .filter((p) => p.method === "নগদ (Cash)")
+      .reduce((s, p) => s + p.amount, 0);
     if (cashPaid > 0) {
       setCashSession((prev) => ({
         ...prev,
@@ -333,6 +367,7 @@ export default function App() {
       ...prev,
       actualClosingCash: amount,
       discrepancy: amount - prev.expectedClosingCash,
+      isClosed: true,
     }));
   };
 
@@ -501,6 +536,8 @@ export default function App() {
                     : (userPermissions.cash ?? { view: false, manage: false })
                 }
                 onUpdateActualCash={handleUpdateActualCash}
+                onSessionUpdated={setCashSession}
+                onReload={loadCashSession}
               />
             )}
             {currentPage === "reports" && canAccessPage("reports") && (
