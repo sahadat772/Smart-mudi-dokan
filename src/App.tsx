@@ -8,7 +8,6 @@ import {
   DEMO_CUSTOMERS,
   DEMO_SUPPLIERS,
   DEMO_EXPENSES,
-  DEMO_RECENT_SALES,
   DEMO_DUE_COLLECTIONS,
   DEMO_CASH_SESSION,
   DEMO_SHOP_SETTINGS,
@@ -63,10 +62,10 @@ export default function App() {
   const [products, setProducts] = useState<Product[]>([]);
   const [productsLoading, setProductsLoading] = useState(false);
   const [productsError, setProductsError] = useState<string | null>(null);
+  const [recentSales, setRecentSales] = useState<Sale[]>([]);
   const [customers, setCustomers] = useState<Customer[]>(DEMO_CUSTOMERS);
   const [suppliers, setSuppliers] = useState<Supplier[]>(DEMO_SUPPLIERS);
   const [expenses, setExpenses] = useState<Expense[]>(DEMO_EXPENSES);
-  const [recentSales, setRecentSales] = useState<Sale[]>(DEMO_RECENT_SALES);
   const [dueCollections, setDueCollections] =
     useState<DueCollection[]>(DEMO_DUE_COLLECTIONS);
   const [cashSession, setCashSession] =
@@ -86,6 +85,7 @@ export default function App() {
     setCurrentPage("dashboard");
     setIsMobileMenuOpen(false);
     setProducts([]);
+    setRecentSales([]);
     setProductsError(null);
   }, []);
 
@@ -103,6 +103,16 @@ export default function App() {
       setProducts([]);
     } finally {
       setProductsLoading(false);
+    }
+  }, []);
+
+  const loadSales = useCallback(async () => {
+    try {
+      const data = await apiFetch<{ sales: Sale[] }>("/api/sales?limit=30");
+      setRecentSales(data.sales || []);
+    } catch (error) {
+      console.error("Failed to load sales:", error);
+      // Keep existing list; products already independent.
     }
   }, []);
 
@@ -174,11 +184,11 @@ export default function App() {
     return () => unsubscribe();
   }, [clearAuthState]);
 
-  // Load products after auth is ready and password gate is clear.
   useEffect(() => {
     if (!authUser || !currentRole || mustChangePassword) return;
     void loadProducts();
-  }, [authUser, currentRole, mustChangePassword, loadProducts]);
+    void loadSales();
+  }, [authUser, currentRole, mustChangePassword, loadProducts, loadSales]);
 
   const canAccessPage = (page: NavPageId): boolean => {
     if (currentRole === "owner") return true;
@@ -209,26 +219,22 @@ export default function App() {
     (p) => p.stockQuantity <= p.lowStockThreshold,
   ).length;
 
-  const handleCompleteSale = (newSale: Sale) => {
-    setRecentSales([newSale, ...recentSales]);
+  const handleCompleteSale = (
+    newSale: Sale,
+    updatedProducts?: { id: string; stockQuantity: number }[],
+  ) => {
+    setRecentSales((prev) => [newSale, ...prev]);
 
-    setProducts((prev) =>
-      prev.map((prod) => {
-        const itemInSale = newSale.items.find(
-          (item) => item.product.id === prod.id,
-        );
-        if (itemInSale) {
-          return {
-            ...prod,
-            stockQuantity: Math.max(
-              0,
-              prod.stockQuantity - itemInSale.quantity,
-            ),
-          };
-        }
-        return prod;
-      }),
-    );
+    if (updatedProducts?.length) {
+      setProducts((prev) =>
+        prev.map((prod) => {
+          const match = updatedProducts.find((u) => u.id === prod.id);
+          return match
+            ? { ...prod, stockQuantity: match.stockQuantity }
+            : prod;
+        }),
+      );
+    }
 
     const cashPaid = newSale.payments
       .filter((p) => p.method === "নগদ (Cash)")
