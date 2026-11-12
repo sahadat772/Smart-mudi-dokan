@@ -6,14 +6,11 @@ import {
   Minus,
   Trash2,
   CheckCircle,
-  FileText,
   User,
-  CreditCard,
   Banknote,
   Smartphone,
   Landmark,
   Percent,
-  Receipt,
   RotateCcw,
 } from "lucide-react";
 import {
@@ -24,6 +21,7 @@ import {
   Customer,
   UserRole,
 } from "../../types";
+import { apiFetch } from "../../api/client";
 
 interface PosPageProps {
   products: Product[];
@@ -33,7 +31,10 @@ interface PosPageProps {
     view: boolean;
     manage: boolean;
   };
-  onCompleteSale: (sale: Sale) => void;
+  onCompleteSale: (
+    sale: Sale,
+    updatedProducts?: { id: string; stockQuantity: number }[],
+  ) => void;
   shopName: string;
 }
 
@@ -58,6 +59,8 @@ export const PosPage: React.FC<PosPageProps> = ({
   );
   const [walkInName, setWalkInName] = useState<string>("");
   const [walkInPhone, setWalkInPhone] = useState<string>("");
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
 
   const categories = [
     "all",
@@ -86,6 +89,9 @@ export const PosPage: React.FC<PosPageProps> = ({
     setCart((prevCart) => {
       const existing = prevCart.find((item) => item.product.id === product.id);
       if (existing) {
+        if (existing.quantity + 1 > product.stockQuantity) {
+          return prevCart;
+        }
         return prevCart.map((item) =>
           item.product.id === product.id
             ? {
@@ -95,17 +101,19 @@ export const PosPage: React.FC<PosPageProps> = ({
               }
             : item,
         );
-      } else {
-        const newItem: CartItem = {
-          product,
-          quantity: 1,
-          unitPrice: product.sellingPrice,
-          discount: 0,
-          total: product.sellingPrice,
-          costAtSale: product.costPrice, // Preserves sale-time cost for COGS
-        };
-        return [...prevCart, newItem];
       }
+
+      if (product.stockQuantity <= 0) return prevCart;
+
+      const newItem: CartItem = {
+        product,
+        quantity: 1,
+        unitPrice: product.sellingPrice,
+        discount: 0,
+        total: product.sellingPrice,
+        costAtSale: product.costPrice ?? 0,
+      };
+      return [...prevCart, newItem];
     });
   };
 
@@ -114,6 +122,12 @@ export const PosPage: React.FC<PosPageProps> = ({
       removeFromCart(productId);
       return;
     }
+
+    const product = products.find((p) => p.id === productId);
+    if (product && newQty > product.stockQuantity) {
+      return;
+    }
+
     setCart((prevCart) =>
       prevCart.map((item) =>
         item.product.id === productId
@@ -140,24 +154,17 @@ export const PosPage: React.FC<PosPageProps> = ({
     setWalkInName("");
     setWalkInPhone("");
     setIsMixedPayment(false);
+    setCheckoutError(null);
   };
 
-  // Calculations
   const subtotal = cart.reduce((acc, item) => acc + item.total, 0);
   const grandTotal = Math.max(0, subtotal - discountAmount);
-  const cogsTotal = cart.reduce(
-    (acc, item) => acc + item.costAtSale * item.quantity,
-    0,
-  );
-  const grossProfit = grandTotal - cogsTotal;
-
-  // Defaults paid amount to grand total if not manually edited or if in full payment mode
   const effectivePaidAmount = isMixedPayment ? paidAmount : grandTotal;
   const dueAmount = Math.max(0, grandTotal - effectivePaidAmount);
 
   const canManagePOS = currentRole === "owner" || permissions?.manage === true;
 
-  const handleCheckout = () => {
+  const handleCheckout = async () => {
     if (!canManagePOS) {
       alert("আপনার বিক্রি সম্পন্ন করার অনুমতি নেই।");
       return;
@@ -165,45 +172,45 @@ export const PosPage: React.FC<PosPageProps> = ({
 
     if (cart.length === 0) return;
 
-    const invoiceNo = `INV-${Date.now().toString().slice(-6)}`;
-    const saleRecord: Sale = {
-      id: `sale-${Date.now()}`,
-      invoiceNo,
-      createdAt: "২০২৬-১০-২৭ ১২:৫০ PM",
-      customerName:
-        selectedCustomer?.name || walkInName.trim() || "সাধারণ ক্রেতা",
-      customerPhone: selectedCustomer?.phone || walkInPhone.trim() || undefined,
-      customerId: selectedCustomer?.id,
-      items: [...cart],
-      subtotal,
-      discount: discountAmount,
-      grandTotal,
-      paidAmount: effectivePaidAmount,
-      dueAmount,
-      payments: [
-        {
-          method: selectedPaymentMethod,
-          amount: effectivePaidAmount,
-        },
-      ],
-      status: "completed",
-      soldBy:
-        currentRole === "owner"
-          ? "মো. শাহাদাত হোসেন (মালিক)"
-          : "কামরুল হাসান (কর্মী)",
-      cogsTotal,
-      grossProfit,
-    };
+    setCheckoutError(null);
+    setIsCheckingOut(true);
 
-    onCompleteSale(saleRecord);
-    clearCart();
+    try {
+      const data = await apiFetch<{
+        sale: Sale;
+        updatedProducts?: { id: string; stockQuantity: number }[];
+      }>("/api/sales", {
+        method: "POST",
+        body: JSON.stringify({
+          items: cart.map((item) => ({
+            productId: item.product.id,
+            quantity: item.quantity,
+          })),
+          discount: discountAmount,
+          paidAmount: effectivePaidAmount,
+          paymentMethod: selectedPaymentMethod,
+          customerId: selectedCustomer?.id,
+          customerName:
+            selectedCustomer?.name || walkInName.trim() || "সাধারণ ক্রেতা",
+          customerPhone:
+            selectedCustomer?.phone || walkInPhone.trim() || undefined,
+        }),
+      });
+
+      onCompleteSale(data.sale, data.updatedProducts);
+      clearCart();
+    } catch (err) {
+      setCheckoutError(
+        err instanceof Error ? err.message : "বিক্রি সম্পন্ন করা যায়নি।",
+      );
+    } finally {
+      setIsCheckingOut(false);
+    }
   };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-      {/* Left Column: Product Selection & Catalog (7 Cols on desktop) */}
       <div className="lg:col-span-7 space-y-4">
-        {/* Search & Barcode input */}
         <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex items-center gap-2">
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
@@ -211,27 +218,19 @@ export const PosPage: React.FC<PosPageProps> = ({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="পণ্য বা বারকোড খুঁজুন (যেমন: চাল, তেল, ডিম, 890123...)"
+              placeholder="পণ্য বা বারকোড খুঁজুন..."
               className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
             />
           </div>
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery("")}
-              className="text-xs text-slate-500 hover:text-slate-800 px-2 py-1"
-            >
-              মুছুন
-            </button>
-          )}
         </div>
 
-        {/* Category Filter Pills (Touch-Friendly Horizontal Scroll) */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
           {categories.map((cat) => (
             <button
               key={cat}
+              type="button"
               onClick={() => setSelectedCategory(cat)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap shrink-0 transition-colors ${
                 selectedCategory === cat
                   ? "bg-emerald-600 text-white shadow-xs"
                   : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50"
@@ -242,7 +241,6 @@ export const PosPage: React.FC<PosPageProps> = ({
           ))}
         </div>
 
-        {/* Product Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[620px] overflow-y-auto pr-1">
           {filteredProducts.map((p) => {
             const inCart = cart.find((i) => i.product.id === p.id);
@@ -297,15 +295,11 @@ export const PosPage: React.FC<PosPageProps> = ({
         </div>
       </div>
 
-      {/* Right Column: Active Cart & POS Billing (5 Cols on desktop) */}
       <div className="lg:col-span-5 bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden flex flex-col sticky top-20">
-        {/* Cart Header */}
         <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between bg-slate-50/70">
           <div className="flex items-center gap-2">
             <ShoppingCart className="w-4 h-4 text-emerald-600" />
-            <h2 className="font-bold text-sm text-slate-900">
-              বিক্রয় ঝুড়ি (Cart)
-            </h2>
+            <h2 className="font-bold text-sm text-slate-900">বিক্রয় ঝুড়ি</h2>
             <span className="text-xs bg-slate-200/80 px-2 py-0.5 rounded-full font-semibold tabular-nums text-slate-700">
               {cart.reduce((sum, item) => sum + item.quantity, 0)}
             </span>
@@ -313,8 +307,9 @@ export const PosPage: React.FC<PosPageProps> = ({
 
           {cart.length > 0 && (
             <button
+              type="button"
               onClick={clearCart}
-              className="text-xs text-rose-600 hover:text-rose-800 flex items-center gap-1 transition-colors cursor-pointer"
+              className="text-xs text-rose-600 hover:text-rose-800 flex items-center gap-1"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               <span>রিসেট</span>
@@ -322,7 +317,6 @@ export const PosPage: React.FC<PosPageProps> = ({
           )}
         </div>
 
-        {/* Customer Select Bar */}
         <div className="p-3 bg-slate-50/50 border-b border-slate-200 space-y-2">
           <div className="flex items-center gap-2">
             <User className="w-4 h-4 text-slate-500 shrink-0" />
@@ -363,12 +357,11 @@ export const PosPage: React.FC<PosPageProps> = ({
           )}
         </div>
 
-        {/* Cart Items List */}
         <div className="p-3 divide-y divide-slate-100 max-h-[260px] overflow-y-auto flex-1">
           {cart.length === 0 ? (
             <div className="py-12 text-center text-slate-400 text-xs">
               <ShoppingCart className="w-8 h-8 mx-auto mb-2 opacity-30" />
-              <p>ঝুড়ি খালি। বাম পাশের তালিকা থেকে পণ্য নির্বাচন করুন।</p>
+              <p>ঝুড়ি খালি। বাম পাশ থেকে পণ্য নির্বাচন করুন।</p>
             </div>
           ) : (
             cart.map((item) => (
@@ -385,35 +378,36 @@ export const PosPage: React.FC<PosPageProps> = ({
                   </div>
                 </div>
 
-                {/* Quantity Controls */}
                 <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
                   <button
+                    type="button"
                     onClick={() =>
                       updateQuantity(item.product.id, item.quantity - 1)
                     }
-                    className="w-6 h-6 flex items-center justify-center text-slate-600 hover:text-slate-900 hover:bg-white rounded transition-colors"
+                    className="w-6 h-6 flex items-center justify-center text-slate-600"
                   >
                     <Minus className="w-3 h-3" />
                   </button>
-                  <span className="w-7 text-center font-bold text-xs tabular-nums text-slate-900">
+                  <span className="w-7 text-center font-bold text-xs tabular-nums">
                     {item.quantity}
                   </span>
                   <button
+                    type="button"
                     onClick={() =>
                       updateQuantity(item.product.id, item.quantity + 1)
                     }
-                    className="w-6 h-6 flex items-center justify-center text-slate-600 hover:text-slate-900 hover:bg-white rounded transition-colors"
+                    className="w-6 h-6 flex items-center justify-center text-slate-600"
                   >
                     <Plus className="w-3 h-3" />
                   </button>
                 </div>
 
-                {/* Total */}
-                <div className="w-16 text-right font-bold text-xs text-slate-900 tabular-nums">
+                <div className="w-16 text-right font-bold text-xs tabular-nums">
                   ৳{item.total}
                 </div>
 
                 <button
+                  type="button"
                   onClick={() => removeFromCart(item.product.id)}
                   className="text-slate-400 hover:text-rose-600 p-1 rounded"
                 >
@@ -424,9 +418,7 @@ export const PosPage: React.FC<PosPageProps> = ({
           )}
         </div>
 
-        {/* Calculation & Payment Area */}
         <div className="p-4 bg-slate-50 border-t border-slate-200 space-y-3 text-xs">
-          {/* Subtotal & Discount */}
           <div className="space-y-1.5 text-slate-600">
             <div className="flex justify-between">
               <span>সাব-টোটাল:</span>
@@ -437,7 +429,7 @@ export const PosPage: React.FC<PosPageProps> = ({
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-1">
                 <Percent className="w-3 h-3 text-emerald-600" />
-                <span>ডিসকাউন্ট / ছাড়:</span>
+                <span>ডিসকাউন্ট:</span>
               </span>
               <div className="flex items-center gap-1">
                 <span>৳</span>
@@ -455,79 +447,69 @@ export const PosPage: React.FC<PosPageProps> = ({
             </div>
           </div>
 
-          {/* Grand Total */}
           <div className="pt-2 border-t border-slate-200 flex justify-between items-baseline">
-            <span className="text-sm font-bold text-slate-900">
-              সর্বমোট প্রদেয়:
-            </span>
+            <span className="text-sm font-bold text-slate-900">সর্বমোট:</span>
             <span className="text-lg font-extrabold text-emerald-700 tabular-nums">
               ৳{grandTotal}
             </span>
           </div>
 
-          {/* Payment Method Selector */}
           <div>
             <label className="block text-[11px] font-semibold text-slate-700 mb-1.5">
-              পেমেন্ট মাধ্যম নির্বাচন করুন:
+              পেমেন্ট মাধ্যম:
             </label>
             <div className="grid grid-cols-2 gap-1.5">
               <button
                 type="button"
                 onClick={() => setSelectedPaymentMethod("নগদ (Cash)")}
-                className={`py-1.5 px-2 rounded-lg text-xs font-medium border flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                className={`py-1.5 px-2 rounded-lg text-xs font-medium border flex items-center justify-center gap-1.5 ${
                   selectedPaymentMethod === "নগদ (Cash)"
-                    ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
-                    : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
+                    ? "bg-emerald-600 text-white border-emerald-600"
+                    : "bg-white text-slate-700 border-slate-300"
                 }`}
               >
                 <Banknote className="w-3.5 h-3.5" />
-                <span>নগদ (Cash)</span>
+                নগদ
               </button>
-
               <button
                 type="button"
                 onClick={() => setSelectedPaymentMethod("বিকাশ (bKash)")}
-                className={`py-1.5 px-2 rounded-lg text-xs font-medium border flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                className={`py-1.5 px-2 rounded-lg text-xs font-medium border flex items-center justify-center gap-1.5 ${
                   selectedPaymentMethod === "বিকাশ (bKash)"
-                    ? "bg-pink-600 text-white border-pink-600 shadow-xs"
-                    : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
+                    ? "bg-emerald-600 text-white border-emerald-600"
+                    : "bg-white text-slate-700 border-slate-300"
                 }`}
               >
                 <Smartphone className="w-3.5 h-3.5" />
-                <span>বিকাশ</span>
+                বিকাশ
               </button>
-
               <button
                 type="button"
                 onClick={() => setSelectedPaymentMethod("নগদ (Nagad)")}
-                className={`py-1.5 px-2 rounded-lg text-xs font-medium border flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                className={`py-1.5 px-2 rounded-lg text-xs font-medium border flex items-center justify-center gap-1.5 ${
                   selectedPaymentMethod === "নগদ (Nagad)"
-                    ? "bg-amber-600 text-white border-amber-600 shadow-xs"
-                    : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
+                    ? "bg-emerald-600 text-white border-emerald-600"
+                    : "bg-white text-slate-700 border-slate-300"
                 }`}
               >
                 <Smartphone className="w-3.5 h-3.5" />
-                <span>নগদ (Nagad)</span>
+                নগদ
               </button>
-
               <button
                 type="button"
-                onClick={() =>
-                  setSelectedPaymentMethod("ব্যাংক / কার্ড (Bank)")
-                }
-                className={`py-1.5 px-2 rounded-lg text-xs font-medium border flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                onClick={() => setSelectedPaymentMethod("ব্যাংক / কার্ড (Bank)")}
+                className={`py-1.5 px-2 rounded-lg text-xs font-medium border flex items-center justify-center gap-1.5 ${
                   selectedPaymentMethod === "ব্যাংক / কার্ড (Bank)"
-                    ? "bg-blue-600 text-white border-blue-600 shadow-xs"
-                    : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
+                    ? "bg-emerald-600 text-white border-emerald-600"
+                    : "bg-white text-slate-700 border-slate-300"
                 }`}
               >
                 <Landmark className="w-3.5 h-3.5" />
-                <span>ব্যাংক / কার্ড</span>
+                ব্যাংক
               </button>
             </div>
           </div>
 
-          {/* Mixed payment / Due workflow toggle */}
           <div className="pt-1">
             <button
               type="button"
@@ -535,19 +517,17 @@ export const PosPage: React.FC<PosPageProps> = ({
                 setIsMixedPayment(!isMixedPayment);
                 setPaidAmount(grandTotal);
               }}
-              className="text-[11px] text-emerald-800 hover:underline flex items-center gap-1 font-medium cursor-pointer"
+              className="text-[11px] text-emerald-800 hover:underline font-medium"
             >
-              <span>
-                {isMixedPayment
-                  ? "পূর্ণ পরিশোধ মোডে ফিরুন"
-                  : "+ আংশিক বা বাকি বিক্রি যুক্ত করুন"}
-              </span>
+              {isMixedPayment
+                ? "পূর্ণ পরিশোধ মোডে ফিরুন"
+                : "+ আংশিক বা বাকি বিক্রি যুক্ত করুন"}
             </button>
 
             {isMixedPayment && (
               <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded-lg space-y-1.5 text-[11px]">
                 <div className="flex justify-between items-center">
-                  <span>গ্রাহক পরিশোধ করেছেন:</span>
+                  <span>পরিশোধিত:</span>
                   <div className="flex items-center gap-1">
                     <span>৳</span>
                     <input
@@ -561,22 +541,34 @@ export const PosPage: React.FC<PosPageProps> = ({
                   </div>
                 </div>
                 <div className="flex justify-between items-center text-rose-700 font-bold">
-                  <span>অবশিষ্ট বাকি থাকবে:</span>
+                  <span>বাকি:</span>
                   <span className="tabular-nums">৳{dueAmount}</span>
                 </div>
               </div>
             )}
           </div>
 
-          {/* Complete Sale Button */}
+          {checkoutError && (
+            <div className="p-2 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-[11px]">
+              {checkoutError}
+            </div>
+          )}
+
           <button
-            onClick={handleCheckout}
-            disabled={cart.length === 0 || !canManagePOS}
-            className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            type="button"
+            onClick={() => void handleCheckout()}
+            disabled={cart.length === 0 || !canManagePOS || isCheckingOut}
+            className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl shadow-md flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <CheckCircle className="w-5 h-5" />
-            <span>বিক্রি সম্পন্ন ও রসিদ তৈরি (৳{grandTotal})</span>
+            <span>
+              {isCheckingOut
+                ? "সংরক্ষণ হচ্ছে..."
+                : `বিক্রি সম্পন্ন ও রসিদ (৳${grandTotal})`}
+            </span>
           </button>
+
+          <p className="text-[10px] text-slate-400 text-center">{shopName}</p>
         </div>
       </div>
     </div>
