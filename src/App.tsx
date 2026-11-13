@@ -4,7 +4,6 @@
  */
 
 import React, { useState, useEffect, useCallback } from "react";
-import { DEMO_SHOP_SETTINGS } from "./data/mockData";
 import {
   Product,
   Customer,
@@ -40,6 +39,16 @@ import { LoginPage } from "./pages/Login/LoginPage";
 import StaffManagement from "./pages/Staff/StaffManagement";
 import { ChangePasswordPage } from "./pages/ChangePassword/ChangePasswordPage";
 
+const defaultShopSettings: ShopSettings = {
+  shopName: "স্মার্ট মুদি দোকান",
+  tagline: "তাজা পণ্য · ন্যায্য দাম",
+  proprietorName: "",
+  phone: "",
+  address: "",
+  receiptFooterMsg: "আবার আসবেন — ধন্যবাদ",
+  currencySymbol: "৳",
+};
+
 const emptyCash: CashSession = {
   date: new Date().toISOString().slice(0, 10),
   openingCash: 0,
@@ -74,7 +83,8 @@ export default function App() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [cashSession, setCashSession] = useState<CashSession>(emptyCash);
-  const [shopSettings, setShopSettings] = useState<ShopSettings>(DEMO_SHOP_SETTINGS);
+  const [shopSettings, setShopSettings] =
+    useState<ShopSettings>(defaultShopSettings);
   const [receiptSale, setReceiptSale] = useState<Sale | null>(null);
   const [isReceiptOpen, setIsReceiptOpen] = useState(false);
 
@@ -93,6 +103,7 @@ export default function App() {
     setSuppliers([]);
     setExpenses([]);
     setCashSession(emptyCash);
+    setShopSettings(defaultShopSettings);
     setProductsError(null);
   }, []);
 
@@ -104,7 +115,9 @@ export default function App() {
       setProducts(data.products || []);
     } catch (error) {
       console.error("Failed to load products:", error);
-      setProductsError(error instanceof Error ? error.message : "পণ্য লোড করা যায়নি।");
+      setProductsError(
+        error instanceof Error ? error.message : "পণ্য লোড করা যায়নি।",
+      );
       setProducts([]);
     } finally {
       setProductsLoading(false);
@@ -132,7 +145,9 @@ export default function App() {
 
   const loadSuppliers = useCallback(async () => {
     try {
-      const data = await apiFetch<{ suppliers: Supplier[] }>("/api/purchases/suppliers");
+      const data = await apiFetch<{ suppliers: Supplier[] }>(
+        "/api/purchases/suppliers",
+      );
       setSuppliers(data.suppliers || []);
     } catch (error) {
       console.error("Failed to load suppliers:", error);
@@ -156,6 +171,15 @@ export default function App() {
       if (data.session) setCashSession(data.session);
     } catch (error) {
       console.error("Failed to load cash session:", error);
+    }
+  }, []);
+
+  const loadSettings = useCallback(async () => {
+    try {
+      const data = await apiFetch<{ settings: ShopSettings }>("/api/settings");
+      if (data.settings) setShopSettings(data.settings);
+    } catch (error) {
+      console.error("Failed to load settings:", error);
     }
   }, []);
 
@@ -184,16 +208,28 @@ export default function App() {
           return;
         }
         const userData = userSnap.data();
-        if (userData.active !== true || (userData.role !== "owner" && userData.role !== "employee")) {
+        if (
+          userData.active !== true ||
+          (userData.role !== "owner" && userData.role !== "employee")
+        ) {
           await signOut(auth);
           clearAuthState();
           return;
         }
-        const needsPasswordChange = userData.role === "employee" && userData.mustChangePassword === true;
+        const needsPasswordChange =
+          userData.role === "employee" && userData.mustChangePassword === true;
         setCurrentRole(userData.role as UserRole);
         setMustChangePassword(needsPasswordChange);
-        setDisplayName(typeof userData.displayName === "string" ? userData.displayName : undefined);
-        setUserPermissions(userData.role === "employee" && userData.permissions ? userData.permissions : {});
+        setDisplayName(
+          typeof userData.displayName === "string"
+            ? userData.displayName
+            : undefined,
+        );
+        setUserPermissions(
+          userData.role === "employee" && userData.permissions
+            ? userData.permissions
+            : {},
+        );
         setAuthUser(user);
         setCurrentPage(needsPasswordChange ? "change-password" : "dashboard");
       } catch (error) {
@@ -215,6 +251,7 @@ export default function App() {
     void loadSuppliers();
     void loadExpenses();
     void loadCashSession();
+    void loadSettings();
   }, [
     authUser,
     currentRole,
@@ -225,6 +262,7 @@ export default function App() {
     loadSuppliers,
     loadExpenses,
     loadCashSession,
+    loadSettings,
   ]);
 
   const canAccessPage = (page: NavPageId): boolean => {
@@ -243,9 +281,14 @@ export default function App() {
     if (!canAccessPage(currentPage)) setCurrentPage("dashboard");
   }, [currentRole, currentPage, userPermissions, mustChangePassword]);
 
-  const lowStockCount = products.filter((p) => p.stockQuantity <= p.lowStockThreshold).length;
+  const lowStockCount = products.filter(
+    (p) => p.stockQuantity <= p.lowStockThreshold,
+  ).length;
 
-  const handleCompleteSale = (newSale: Sale, updatedProducts?: { id: string; stockQuantity: number }[]) => {
+  const handleCompleteSale = (
+    newSale: Sale,
+    updatedProducts?: { id: string; stockQuantity: number }[],
+  ) => {
     setRecentSales((prev) => [newSale, ...prev]);
     if (updatedProducts?.length) {
       setProducts((prev) =>
@@ -283,15 +326,22 @@ export default function App() {
     setIsReceiptOpen(true);
   };
 
-  const handleAddProduct = (newProduct: Product) => setProducts((prev) => [newProduct, ...prev]);
+  const handleAddProduct = (newProduct: Product) =>
+    setProducts((prev) => [newProduct, ...prev]);
   const handleUpdateProduct = (updated: Product) =>
     setProducts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
-  const handleAddCustomer = (newCustomer: Customer) => setCustomers((prev) => [newCustomer, ...prev]);
+  const handleAddCustomer = (newCustomer: Customer) =>
+    setCustomers((prev) => [newCustomer, ...prev]);
 
-  const handleCollectDue = (collection: DueCollection, updatedCustomer?: Customer) => {
+  const handleCollectDue = (
+    collection: DueCollection,
+    updatedCustomer?: Customer,
+  ) => {
     setDueCollections((prev) => [collection, ...prev]);
     if (updatedCustomer) {
-      setCustomers((prev) => prev.map((c) => (c.id === updatedCustomer.id ? updatedCustomer : c)));
+      setCustomers((prev) =>
+        prev.map((c) => (c.id === updatedCustomer.id ? updatedCustomer : c)),
+      );
     } else {
       setCustomers((prev) =>
         prev.map((cust) =>
@@ -315,7 +365,8 @@ export default function App() {
     }
   };
 
-  const handleAddSupplier = (newSupplier: Supplier) => setSuppliers((prev) => [newSupplier, ...prev]);
+  const handleAddSupplier = (newSupplier: Supplier) =>
+    setSuppliers((prev) => [newSupplier, ...prev]);
   const handleUpdateSupplier = (updated: Supplier) =>
     setSuppliers((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
 
@@ -323,7 +374,11 @@ export default function App() {
     purchase: Purchase,
     extras?: {
       supplier?: Supplier;
-      updatedProduct?: { id: string; stockQuantity: number; costPrice?: number };
+      updatedProduct?: {
+        id: string;
+        stockQuantity: number;
+        costPrice?: number;
+      };
     },
   ) => {
     if (extras?.updatedProduct) {
@@ -340,7 +395,9 @@ export default function App() {
       );
     }
     if (extras?.supplier) {
-      setSuppliers((prev) => prev.map((s) => (s.id === extras.supplier!.id ? extras.supplier! : s)));
+      setSuppliers((prev) =>
+        prev.map((s) => (s.id === extras.supplier!.id ? extras.supplier! : s)),
+      );
     }
     if (purchase.paymentMethod === "নগদ (Cash)" && purchase.paidAmount > 0) {
       setCashSession((prev) => ({
@@ -380,8 +437,12 @@ export default function App() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-100">
         <div className="text-center">
-          <div className="text-lg font-bold text-slate-800">Smart Mudi Manager</div>
-          <p className="text-sm text-slate-500 mt-2">অ্যাকাউন্ট যাচাই হচ্ছে...</p>
+          <div className="text-lg font-bold text-slate-800">
+            Smart Mudi Manager
+          </div>
+          <p className="text-sm text-slate-500 mt-2">
+            অ্যাকাউন্ট যাচাই হচ্ছে...
+          </p>
         </div>
       </div>
     );
@@ -438,7 +499,11 @@ export default function App() {
             {productsError && (
               <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900">
                 পণ্য লোড সমস্যা: {productsError}
-                <button type="button" onClick={() => void loadProducts()} className="ml-2 underline font-medium">
+                <button
+                  type="button"
+                  onClick={() => void loadProducts()}
+                  className="ml-2 underline font-medium"
+                >
                   আবার চেষ্টা
                 </button>
               </div>
@@ -452,7 +517,9 @@ export default function App() {
                 onSelectSaleForReceipt={handleSelectSaleForReceipt}
               />
             )}
-            {currentPage === "staff" && currentRole === "owner" && <StaffManagement />}
+            {currentPage === "staff" && currentRole === "owner" && (
+              <StaffManagement />
+            )}
             {currentPage === "pos" && (
               <PosPage
                 products={products}
@@ -475,7 +542,10 @@ export default function App() {
                 permissions={
                   currentRole === "owner"
                     ? { view: true, manage: true }
-                    : (userPermissions.products ?? { view: false, manage: false })
+                    : (userPermissions.products ?? {
+                        view: false,
+                        manage: false,
+                      })
                 }
                 onAddProduct={handleAddProduct}
                 onUpdateProduct={handleUpdateProduct}
@@ -490,7 +560,10 @@ export default function App() {
                 permissions={
                   currentRole === "owner"
                     ? { view: true, manage: true }
-                    : (userPermissions.customers ?? { view: false, manage: false })
+                    : (userPermissions.customers ?? {
+                        view: false,
+                        manage: false,
+                      })
                 }
                 onAddCustomer={handleAddCustomer}
                 onCollectDue={handleCollectDue}
@@ -505,7 +578,10 @@ export default function App() {
                 permissions={
                   currentRole === "owner"
                     ? { view: true, manage: true }
-                    : (userPermissions.purchases ?? { view: false, manage: false })
+                    : (userPermissions.purchases ?? {
+                        view: false,
+                        manage: false,
+                      })
                 }
                 onAddSupplier={handleAddSupplier}
                 onAddPurchase={handleAddPurchase}
@@ -520,7 +596,10 @@ export default function App() {
                 permissions={
                   currentRole === "owner"
                     ? { view: true, manage: true }
-                    : (userPermissions.expenses ?? { view: false, manage: false })
+                    : (userPermissions.expenses ?? {
+                        view: false,
+                        manage: false,
+                      })
                 }
                 onAddExpense={handleAddExpense}
                 onReload={loadExpenses}
@@ -546,14 +625,17 @@ export default function App() {
                 permissions={
                   currentRole === "owner"
                     ? { view: true, manage: true }
-                    : (userPermissions.reports ?? { view: false, manage: false })
+                    : (userPermissions.reports ?? {
+                        view: false,
+                        manage: false,
+                      })
                 }
               />
             )}
             {currentPage === "settings" && currentRole === "owner" && (
               <SettingsPage
                 settings={shopSettings}
-                onUpdateSettings={(s) => setShopSettings(s)}
+                onUpdateSettings={setShopSettings}
                 currentRole={currentRole}
                 permissions={{ view: true, manage: true }}
               />
