@@ -1,17 +1,29 @@
-import React, { useState } from "react";
-import {
-  BarChart3,
-  Calendar,
-  TrendingUp,
-  FileSpreadsheet,
-  AlertCircle,
-  ArrowUpRight,
-  TrendingDown,
-  Info,
-  DollarSign,
-  PieChart,
-} from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { Info } from "lucide-react";
 import { UserRole } from "../../types";
+import { apiFetch } from "../../api/client";
+
+interface ReportSummary {
+  period: "daily" | "monthly";
+  periodLabel: string;
+  salesRevenue: number;
+  cogs: number;
+  grossProfit: number;
+  grossMarginPercent: number;
+  expenses: number;
+  netProfit: number;
+  dueSalesIncluded: number;
+  dueCollectedCash: number;
+  customerTotalDues: number;
+  supplierTotalDues: number;
+  totalInvoices: number;
+  topProducts?: {
+    productId: string;
+    name: string;
+    quantity: number;
+    revenue: number;
+  }[];
+}
 
 interface ReportsPageProps {
   currentRole: UserRole;
@@ -28,7 +40,36 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
   const [reportPeriod, setReportPeriod] = useState<"daily" | "monthly">(
     "daily",
   );
+  const [data, setData] = useState<ReportSummary | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   const canViewReports = currentRole === "owner" || permissions?.view === true;
+
+  useEffect(() => {
+    if (!canViewReports) return;
+
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await apiFetch<{ report: ReportSummary }>(
+          `/api/reports/summary?period=${reportPeriod}`,
+        );
+        setData(res.report);
+      } catch (err) {
+        console.error(err);
+        setError(
+          err instanceof Error ? err.message : "রিপোর্ট লোড করা যায়নি।",
+        );
+        setData(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void load();
+  }, [reportPeriod, canViewReports]);
 
   if (!canViewReports) {
     return (
@@ -41,57 +82,23 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
     );
   }
 
-  // Realistic sample financial dataset for Bangladesh grocery store
-  const data =
-    reportPeriod === "daily"
-      ? {
-          periodLabel: "আজকের রিপোর্ট (২৭ অক্টোবর ২০২৬)",
-          salesRevenue: 3085,
-          cogs: 2856,
-          grossProfit: 229,
-          grossMarginPercent: 7.42,
-          expenses: 780, // daily recurring expenses (van 600 + tea 180; electricity treated as monthly or allocated)
-          netProfit: 229 - 780, // -551 (demonstration of daily timing vs monthly allocation)
-          dueSalesIncluded: 800,
-          dueCollectedCash: 1000,
-          customerTotalDues: 10400,
-          supplierTotalDues: 32000,
-          totalInvoices: 3,
-        }
-      : {
-          periodLabel: "চলতি অক্টোবর মাসের সারসংক্ষেপ (১ - ২৭ অক্টোবর ২০২৬)",
-          salesRevenue: 184500,
-          cogs: 165800,
-          grossProfit: 18700,
-          grossMarginPercent: 10.13,
-          expenses: 8500, // Monthly shop rent + electricity + staff salary share
-          netProfit: 10200,
-          dueSalesIncluded: 24000,
-          dueCollectedCash: 18500,
-          customerTotalDues: 10400,
-          supplierTotalDues: 32000,
-          totalInvoices: 142,
-        };
-
   return (
     <div className="space-y-6">
-      {/* Title & Period Selector */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-slate-200">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-            রিপোর্ট ও লাভ-ক্ষতির বিশ্লেষণ (Financial Reports)
+            রিপোর্ট ও লাভ-ক্ষতির বিশ্লেষণ
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            দোকানের মোট বিক্রি, ক্রয়মূল্য (COGS), পরিচালন ব্যয় ও প্রকৃত
-            লাভ-ক্ষতি
+            Firestore থেকে স্বয়ংক্রিয় হিসাব — বিক্রি, COGS, খরচ ও নিট লাভ
           </p>
         </div>
 
-        {/* Period Switcher */}
         <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 shrink-0">
           <button
+            type="button"
             onClick={() => setReportPeriod("daily")}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
               reportPeriod === "daily"
                 ? "bg-white text-slate-900 shadow-xs"
                 : "text-slate-600 hover:text-slate-900"
@@ -100,8 +107,9 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
             আজকের রিপোর্ট
           </button>
           <button
+            type="button"
             onClick={() => setReportPeriod("monthly")}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
               reportPeriod === "monthly"
                 ? "bg-white text-slate-900 shadow-xs"
                 : "text-slate-600 hover:text-slate-900"
@@ -112,154 +120,170 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
         </div>
       </div>
 
-      {/* Mandatory Demo Data Notice */}
-      <div className="bg-amber-50/90 border border-amber-200 rounded-xl p-3.5 flex items-start gap-3 text-xs text-amber-900">
-        <Info className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-3.5 flex items-start gap-3 text-xs text-blue-900">
+        <Info className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
         <div className="leading-relaxed">
-          <span className="font-bold">নোট (Phase 1 ডেমো ভিউ):</span> নিচের হিসাব
-          ও সংখ্যাগুলো প্রোটোটাইপ প্রদর্শনীর জন্য প্রদত্ত নমুনা মান
-          (Demonstration Data)। কোনো অবস্থাতেই এগুলো দোকানের প্রকৃত ফাইনান্সিয়াল
-          রেকর্ড নয়। Phase 2-তে ক্লাউড ফায়ারবেস থেকে স্বয়ংক্রিয়ভাবে নির্ভুল ডাটা
-          ক্যালকুলেট করা হবে।
+          সংখ্যাগুলো এখন লাইভ ডেটা থেকে আসে। বাকি আদায় নতুন বিক্রি নয় — শুধু
+          ক্যাশ বাড়ায়।
         </div>
       </div>
 
-      {/* Profit & Loss Statement (Core Accounting Architecture) */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
-          <div>
-            <h2 className="font-bold text-sm text-slate-900">
-              লাভ ও ক্ষতি বিবরণী (Income & Profit Statement)
-            </h2>
-            <p className="text-xs text-slate-500">{data.periodLabel}</p>
-          </div>
-          <span className="text-[11px] font-medium bg-slate-200/80 px-2 py-0.5 rounded text-slate-700">
-            মুদি অ্যাকাউন্টিং ফরম্যাট
-          </span>
+      {loading && (
+        <div className="text-center text-sm text-slate-500 py-8">
+          রিপোর্ট তৈরি হচ্ছে...
         </div>
+      )}
 
-        <div className="p-5 space-y-4 text-xs sm:text-sm">
-          {/* Step 1: Sales Revenue */}
-          <div className="flex items-center justify-between py-2 border-b border-slate-100">
-            <div>
-              <div className="font-bold text-slate-900">
-                ১. মোট বিক্রয় আয় (Total Sales Revenue)
-              </div>
-              <p className="text-[11px] text-slate-500">
-                কাউন্টার বিক্রি ও বাকিতে পণ্য সরবরাহকৃত সর্বমোট ইনভয়েস মূল্য
-              </p>
-            </div>
-            <span className="text-base font-bold text-slate-900 tabular-nums">
-              ৳{data.salesRevenue.toLocaleString("bn-BD")}
-            </span>
-          </div>
+      {error && (
+        <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-xs text-rose-900">
+          {error}
+        </div>
+      )}
 
-          {/* Step 2: COGS */}
-          <div className="flex items-center justify-between py-2 border-b border-slate-100 bg-rose-50/30 px-3 rounded-lg">
-            <div>
-              <div className="font-bold text-rose-900">
-                ২. বাদ: বিক্রিত পণ্যের ক্রয়মূল্য (Cost of Goods Sold - COGS)
+      {!loading && data && (
+        <>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+            <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+              <div>
+                <h2 className="font-bold text-sm text-slate-900">
+                  লাভ ও ক্ষতি বিবরণী
+                </h2>
+                <p className="text-xs text-slate-500">{data.periodLabel}</p>
               </div>
-              <p className="text-[11px] text-slate-500">
-                যে পণ্যগুলো বিক্রি হয়েছে তাদের প্রকৃত পাইকারি ক্রয়দর
-              </p>
-            </div>
-            <span className="text-base font-bold text-rose-800 tabular-nums">
-              - ৳{data.cogs.toLocaleString("bn-BD")}
-            </span>
-          </div>
-
-          {/* Step 3: Gross Profit */}
-          <div className="flex items-center justify-between py-2.5 px-3 bg-blue-50/70 border border-blue-200 rounded-lg">
-            <div>
-              <div className="font-bold text-blue-950 text-sm">
-                ৩. মোট লাভ (Gross Profit = বিক্রি - ক্রয়মূল্য)
-              </div>
-              <p className="text-[11px] text-blue-800">
-                দোকানের পণ্য বিক্রির গ্রস মার্জিন: {data.grossMarginPercent}%
-              </p>
-            </div>
-            <span className="text-lg font-extrabold text-blue-900 tabular-nums">
-              ৳{data.grossProfit.toLocaleString("bn-BD")}
-            </span>
-          </div>
-
-          {/* Step 4: Operating Expenses */}
-          <div className="flex items-center justify-between py-2 border-b border-slate-100 bg-amber-50/30 px-3 rounded-lg">
-            <div>
-              <div className="font-bold text-amber-950">
-                ৪. বাদ: দোকানের পরিচালন ব্যয় (Operating Expenses)
-              </div>
-              <p className="text-[11px] text-slate-500">
-                ভাড়া, বিদ্যুৎ, কর্মচারীর বেতন, পরিবহন ও আনুষঙ্গিক খরচ
-              </p>
-            </div>
-            <span className="text-base font-bold text-amber-800 tabular-nums">
-              - ৳{data.expenses.toLocaleString("bn-BD")}
-            </span>
-          </div>
-
-          {/* Step 5: Net Profit */}
-          <div
-            className={`flex items-center justify-between p-3.5 rounded-xl border ${
-              data.netProfit >= 0
-                ? "bg-emerald-50 border-emerald-300 text-emerald-950"
-                : "bg-rose-50 border-rose-300 text-rose-950"
-            }`}
-          >
-            <div>
-              <div className="font-extrabold text-base">
-                ৫. প্রকৃত নিট লাভ (Estimated Net Profit)
-              </div>
-              <p className="text-[11px] opacity-80">
-                {data.netProfit >= 0
-                  ? "দোকানের সকল খরচ বাদ দেওয়ার পর চূড়ান্ত নিট উদ্বৃত্ত"
-                  : "খরচের পরিমাণ সাময়িকভাবে বেশি থাকায় নিট ব্যবধান"}
-              </p>
-            </div>
-            <div className="text-right">
-              <span className="text-xl font-black tabular-nums">
-                ৳{data.netProfit.toLocaleString("bn-BD")}
+              <span className="text-[11px] font-medium bg-slate-200/80 px-2 py-0.5 rounded text-slate-700">
+                {data.totalInvoices} টি ইনভয়েস
               </span>
             </div>
-          </div>
-        </div>
-      </div>
 
-      {/* Dues & Balance Sheet Strip */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Customer Dues */}
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-2">
-          <div className="flex items-center justify-between">
-            <h3 className="font-bold text-xs text-slate-900">
-              গ্রাহকদের কাছে বর্তমান মোট বাকি (Accounts Receivable)
-            </h3>
-            <span className="text-[11px] text-rose-700 font-bold tabular-nums">
-              ৳{data.customerTotalDues.toLocaleString("bn-BD")}
-            </span>
-          </div>
-          <p className="text-[11px] text-slate-500 leading-relaxed">
-            এটি দোকানের সম্পদ (Asset)। যখন কাস্টমার এই বাকি টাকা পরিশোধ করবেন,
-            তখন নগদ ক্যাশ বাড়বে কিন্তু নতুন বিক্রি বা লাভ হিসেবে ধরা হবে না।
-          </p>
-        </div>
+            <div className="p-5 space-y-4 text-xs sm:text-sm">
+              <div className="flex items-center justify-between py-2 border-b border-slate-100">
+                <div>
+                  <div className="font-bold text-slate-900">
+                    ১. মোট বিক্রয় আয়
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    বাকিসহ সর্বমোট ইনভয়েস
+                  </p>
+                </div>
+                <span className="text-base font-bold tabular-nums">
+                  ৳{data.salesRevenue.toLocaleString("bn-BD")}
+                </span>
+              </div>
 
-        {/* Supplier Dues */}
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-2">
-          <div className="flex items-center justify-between">
-            <h3 className="font-bold text-xs text-slate-900">
-              মহাজনদের কাছে বর্তমান মোট দেনা (Accounts Payable)
-            </h3>
-            <span className="text-[11px] text-rose-700 font-bold tabular-nums">
-              ৳{data.supplierTotalDues.toLocaleString("bn-BD")}
-            </span>
+              <div className="flex items-center justify-between py-2 border-b border-slate-100 bg-rose-50/30 px-3 rounded-lg">
+                <div>
+                  <div className="font-bold text-rose-900">
+                    ২. বাদ: COGS (ক্রয়মূল্য)
+                  </div>
+                </div>
+                <span className="text-base font-bold text-rose-800 tabular-nums">
+                  - ৳{data.cogs.toLocaleString("bn-BD")}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between py-2.5 px-3 bg-blue-50/70 border border-blue-200 rounded-lg">
+                <div>
+                  <div className="font-bold text-blue-950 text-sm">
+                    ৩. মোট লাভ (Gross Profit)
+                  </div>
+                  <p className="text-[11px] text-blue-800">
+                    মার্জিন: {data.grossMarginPercent}%
+                  </p>
+                </div>
+                <span className="text-lg font-extrabold text-blue-900 tabular-nums">
+                  ৳{data.grossProfit.toLocaleString("bn-BD")}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between py-2 border-b border-slate-100 bg-amber-50/30 px-3 rounded-lg">
+                <div>
+                  <div className="font-bold text-amber-950">
+                    ৪. বাদ: পরিচালন ব্যয়
+                  </div>
+                </div>
+                <span className="text-base font-bold text-amber-800 tabular-nums">
+                  - ৳{data.expenses.toLocaleString("bn-BD")}
+                </span>
+              </div>
+
+              <div
+                className={`flex items-center justify-between p-3.5 rounded-xl border ${
+                  data.netProfit >= 0
+                    ? "bg-emerald-50 border-emerald-300 text-emerald-950"
+                    : "bg-rose-50 border-rose-300 text-rose-950"
+                }`}
+              >
+                <div className="font-extrabold text-base">৫. নিট লাভ</div>
+                <span className="text-xl font-black tabular-nums">
+                  ৳{data.netProfit.toLocaleString("bn-BD")}
+                </span>
+              </div>
+            </div>
           </div>
-          <p className="text-[11px] text-slate-500 leading-relaxed">
-            এটি দোকানের দায় (Liability)। পণ্য কেনার সময় তা স্টকে যোগ হয়েছে।
-            পরবর্তীতে টাকা দিলে তা সরাসরি দেনা কমাবে, দ্বিতীয়বার খরচ হবে না।
-          </p>
-        </div>
-      </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-2">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-xs text-slate-900">
+                  গ্রাহক মোট বাকি
+                </h3>
+                <span className="text-[11px] text-rose-700 font-bold tabular-nums">
+                  ৳{data.customerTotalDues.toLocaleString("bn-BD")}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                এই পিরিয়ডে বাকি আদায়: ৳
+                {data.dueCollectedCash.toLocaleString("bn-BD")}
+              </p>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-2">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-xs text-slate-900">
+                  মহাজন মোট দেনা
+                </h3>
+                <span className="text-[11px] text-rose-700 font-bold tabular-nums">
+                  ৳{data.supplierTotalDues.toLocaleString("bn-BD")}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                এই পিরিয়ডে বাকি বিক্রি: ৳
+                {data.dueSalesIncluded.toLocaleString("bn-BD")}
+              </p>
+            </div>
+          </div>
+
+          {data.topProducts && data.topProducts.length > 0 && (
+            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+              <div className="p-4 border-b bg-slate-50 text-xs font-bold">
+                সেরা পণ্য (রেভিনিউ অনুযায়ী)
+              </div>
+              <table className="w-full text-xs">
+                <thead className="bg-slate-50 text-slate-500 border-b">
+                  <tr>
+                    <th className="px-4 py-2 text-left font-medium">পণ্য</th>
+                    <th className="px-4 py-2 text-right font-medium">পরিমাণ</th>
+                    <th className="px-4 py-2 text-right font-medium">বিক্রি</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {data.topProducts.map((p) => (
+                    <tr key={p.productId}>
+                      <td className="px-4 py-2 font-medium">{p.name}</td>
+                      <td className="px-4 py-2 text-right tabular-nums">
+                        {p.quantity}
+                      </td>
+                      <td className="px-4 py-2 text-right font-bold tabular-nums">
+                        ৳{p.revenue.toLocaleString("bn-BD")}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 };
