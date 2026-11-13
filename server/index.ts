@@ -11,6 +11,7 @@ import purchaseRoutes from "./purchaseRoutes.js";
 import expenseRoutes from "./expenseRoutes.js";
 import cashRoutes from "./cashRoutes.js";
 import reportRoutes from "./reportRoutes.js";
+import settingsRoutes from "./settingsRoutes.js";
 
 dotenv.config({ path: "server/.env" });
 
@@ -38,6 +39,7 @@ app.use("/api/purchases", purchaseRoutes);
 app.use("/api/expenses", expenseRoutes);
 app.use("/api/cash", cashRoutes);
 app.use("/api/reports", reportRoutes);
+app.use("/api/settings", settingsRoutes);
 
 app.get("/api/health", (_req, res) => {
   res.json({
