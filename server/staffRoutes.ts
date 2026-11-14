@@ -1,7 +1,11 @@
 import { Router } from "express";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminAuth, adminDb } from "./firebaseAdmin.js";
-import { verifyOwner, verifyUser } from "./authMiddleware.js";
+import {
+  verifyOwner,
+  verifyUser,
+  type AuthenticatedRequest,
+} from "./authMiddleware.js";
 
 const router = Router();
 
@@ -435,66 +439,70 @@ router.patch("/:uid/permissions", verifyOwner, async (req, res) => {
   }
 });
 
-router.post("/complete-first-login", verifyUser, async (req, res) => {
-  try {
-    const uid = req.user!.uid;
-    const { newPassword } = req.body;
+router.post(
+  "/complete-first-login",
+  verifyUser,
+  async (req: AuthenticatedRequest, res) => {
+    try {
+      const uid = req.user!.uid;
+      const { newPassword } = req.body;
 
-    if (
-      typeof newPassword !== "string" ||
-      newPassword.length < 8 ||
-      newPassword.length > 128
-    ) {
-      return res.status(400).json({
+      if (
+        typeof newPassword !== "string" ||
+        newPassword.length < 8 ||
+        newPassword.length > 128
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Password must be between 8 and 128 characters.",
+        });
+      }
+
+      const userRef = adminDb.collection("users").doc(uid);
+      const userSnap = await userRef.get();
+
+      if (!userSnap.exists) {
+        return res.status(404).json({
+          success: false,
+          message: "User profile not found.",
+        });
+      }
+
+      const userData = userSnap.data();
+
+      if (
+        userData?.role !== "employee" ||
+        userData?.active !== true ||
+        userData?.mustChangePassword !== true
+      ) {
+        return res.status(403).json({
+          success: false,
+          message: "Password change is not allowed.",
+        });
+      }
+
+      await adminAuth.updateUser(uid, {
+        password: newPassword,
+      });
+
+      await userRef.update({
+        mustChangePassword: false,
+        passwordChangedAt: FieldValue.serverTimestamp(),
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: "Password changed successfully.",
+      });
+    } catch (error) {
+      console.error("First login password change failed:", error);
+
+      return res.status(500).json({
         success: false,
-        message: "Password must be between 8 and 128 characters.",
+        message: "Unable to change password.",
       });
     }
-
-    const userRef = adminDb.collection("users").doc(uid);
-    const userSnap = await userRef.get();
-
-    if (!userSnap.exists) {
-      return res.status(404).json({
-        success: false,
-        message: "User profile not found.",
-      });
-    }
-
-    const userData = userSnap.data();
-
-    if (
-      userData?.role !== "employee" ||
-      userData?.active !== true ||
-      userData?.mustChangePassword !== true
-    ) {
-      return res.status(403).json({
-        success: false,
-        message: "Password change is not allowed.",
-      });
-    }
-
-    await adminAuth.updateUser(uid, {
-      password: newPassword,
-    });
-
-    await userRef.update({
-      mustChangePassword: false,
-      passwordChangedAt: FieldValue.serverTimestamp(),
-    });
-
-    return res.status(200).json({
-      success: true,
-      message: "Password changed successfully.",
-    });
-  } catch (error) {
-    console.error("First login password change failed:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Unable to change password.",
-    });
-  }
-});
+  },
+);
 
 export default router;

@@ -11,8 +11,10 @@ export async function apiFetch<T = any>(
   }
 
   const idToken = await currentUser.getIdToken();
+  const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 
-  const response = await fetch(path, {
+// fetch-এ:
+  const response = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -20,6 +22,7 @@ export async function apiFetch<T = any>(
       ...(options.headers || {}),
     },
   });
+  
 
   let data: any = null;
   try {
