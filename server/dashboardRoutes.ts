@@ -48,7 +48,7 @@ function labelFor(dateKey: string, isToday: boolean) {
   };
 }
 
-function saleProfit(data: FirebaseFirestore.DocumentData) {
+function saleProfit(data: Record<string, unknown>) {
   const revenue = Number(data.grandTotal) || 0;
   const cogs = Number(data.cogsTotal) || 0;
   const stored = Number(data.grossProfit);
@@ -102,7 +102,7 @@ router.get("/", requirePermission("dashboard", "view"), async (req, res) => {
     }
 
     for (const docSnap of salesSnap.docs) {
-      const data = docSnap.data();
+      const data = docSnap.data() as Record<string, any>;
       const created = data.createdAt?.toDate?.();
       if (!created) continue;
       const key = dhakaDateKey(created);
@@ -113,7 +113,7 @@ router.get("/", requirePermission("dashboard", "view"), async (req, res) => {
     }
 
     for (const docSnap of expSnap.docs) {
-      const data = docSnap.data();
+      const data = docSnap.data() as Record<string, any>;
       const created = data.createdAt?.toDate?.();
       if (!created) continue;
       const key = dhakaDateKey(created);
