@@ -24,9 +24,30 @@ const allowedOrigins = (process.env.CORS_ORIGIN || "http://localhost:3000")
   .map((origin) => origin.trim())
   .filter(Boolean);
 
+function isAllowedOrigin(origin?: string) {
+  if (!origin) return true;
+  if (allowedOrigins.includes(origin)) return true;
+
+  try {
+    const host = new URL(origin).hostname;
+    return (
+      host === "smart-mudi-dokan.vercel.app" ||
+      (host.endsWith(".vercel.app") && host.startsWith("smart-mudi-dokan-"))
+    );
+  } catch {
+    return false;
+  }
+}
+
 app.use(
   cors({
-    origin: allowedOrigins,
+    origin(origin, callback) {
+      if (isAllowedOrigin(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(null, false);
+    },
   }),
 );
 
