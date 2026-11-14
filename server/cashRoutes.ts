@@ -2,6 +2,11 @@ import { Router } from "express";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { adminDb } from "./firebaseAdmin.js";
 import {
+  getTodayDhakaDateKey,
+  getDhakaDayBounds,
+  addDateKeyDays,
+} from "./dateUtils.js";
+import {
   verifyUser,
   requirePermission,
   type AuthenticatedRequest,
@@ -10,16 +15,6 @@ import {
 const router = Router();
 
 const shopId = () => process.env.SHOP_ID || "default";
-
-function todayKey() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function dayBounds(dateStr: string) {
-  const start = new Date(`${dateStr}T00:00:00.000Z`);
-  const end = new Date(`${dateStr}T23:59:59.999Z`);
-  return { start, end };
-}
 
 function mapSession(
   date: string,
@@ -67,179 +62,167 @@ function mapSession(
 }
 
 async function computeCashTotals(dateStr: string) {
-  const { start, end } = dayBounds(dateStr);
+  const { start, end } = getDhakaDayBounds(dateStr);
   const startTs = Timestamp.fromDate(start);
   const endTs = Timestamp.fromDate(end);
   const sid = shopId();
+
+  // All essential queries must succeed.
+  // Never return partial or misleading cash totals.
+  const [salesSnap, dueSnap, expSnap, paySnap, purchSnap] = await Promise.all([
+    adminDb
+      .collection("sales")
+      .where("shopId", "==", sid)
+      .where("createdAt", ">=", startTs)
+      .where("createdAt", "<=", endTs)
+      .get(),
+
+    adminDb
+      .collection("dueCollections")
+      .where("shopId", "==", sid)
+      .where("createdAt", ">=", startTs)
+      .where("createdAt", "<=", endTs)
+      .get(),
+
+    adminDb
+      .collection("expenses")
+      .where("shopId", "==", sid)
+      .where("createdAt", ">=", startTs)
+      .where("createdAt", "<=", endTs)
+      .get(),
+
+    adminDb
+      .collection("supplierPayments")
+      .where("shopId", "==", sid)
+      .where("createdAt", ">=", startTs)
+      .where("createdAt", "<=", endTs)
+      .get(),
+
+    adminDb
+      .collection("purchases")
+      .where("shopId", "==", sid)
+      .where("createdAt", ">=", startTs)
+      .where("createdAt", "<=", endTs)
+      .get(),
+  ]);
 
   let cashSales = 0;
   let cashDueCollected = 0;
   let cashExpenses = 0;
   let cashSupplierPaid = 0;
 
-  try {
-    const salesSnap = await adminDb
-      .collection("sales")
-      .where("shopId", "==", sid)
-      .where("createdAt", ">=", startTs)
-      .where("createdAt", "<=", endTs)
-      .get();
+  for (const docSnap of salesSnap.docs) {
+    const data = docSnap.data();
+    const payments = Array.isArray(data.payments) ? data.payments : [];
 
-    for (const docSnap of salesSnap.docs) {
-      const data = docSnap.data();
-      const payments = Array.isArray(data.payments) ? data.payments : [];
-      for (const p of payments) {
-        if (p?.method === "নগদ (Cash)") {
-          cashSales += Number(p.amount) || 0;
-        }
+    for (const payment of payments) {
+      if (payment?.method === "নগদ (Cash)") {
+        cashSales += Number(payment.amount) || 0;
       }
     }
-  } catch (e) {
-    console.warn("cashSales query failed (index?):", e);
   }
 
-  try {
-    const dueSnap = await adminDb
-      .collection("dueCollections")
-      .where("shopId", "==", sid)
-      .where("createdAt", ">=", startTs)
-      .where("createdAt", "<=", endTs)
-      .get();
+  for (const docSnap of dueSnap.docs) {
+    const data = docSnap.data();
 
-    for (const docSnap of dueSnap.docs) {
-      const data = docSnap.data();
-      if (data.paymentMethod === "নগদ (Cash)") {
-        cashDueCollected += Number(data.amount) || 0;
-      }
+    if (data.paymentMethod === "নগদ (Cash)") {
+      cashDueCollected += Number(data.amount) || 0;
     }
-  } catch (e) {
-    console.warn("cashDueCollected query failed (index?):", e);
   }
 
-  try {
-    const expSnap = await adminDb
-      .collection("expenses")
-      .where("shopId", "==", sid)
-      .where("createdAt", ">=", startTs)
-      .where("createdAt", "<=", endTs)
-      .get();
+  for (const docSnap of expSnap.docs) {
+    const data = docSnap.data();
 
-    for (const docSnap of expSnap.docs) {
-      const data = docSnap.data();
-      if (data.paymentMethod === "নগদ (Cash)") {
-        cashExpenses += Number(data.amount) || 0;
-      }
+    if (data.paymentMethod === "নগদ (Cash)") {
+      cashExpenses += Number(data.amount) || 0;
     }
-  } catch (e) {
-    console.warn("cashExpenses query failed (index?):", e);
   }
 
-  try {
-    const paySnap = await adminDb
-      .collection("supplierPayments")
-      .where("shopId", "==", sid)
-      .where("createdAt", ">=", startTs)
-      .where("createdAt", "<=", endTs)
-      .get();
+  for (const docSnap of paySnap.docs) {
+    const data = docSnap.data();
 
-    for (const docSnap of paySnap.docs) {
-      const data = docSnap.data();
-      if (data.paymentMethod === "নগদ (Cash)") {
-        cashSupplierPaid += Number(data.amount) || 0;
-      }
+    if (data.paymentMethod === "নগদ (Cash)") {
+      cashSupplierPaid += Number(data.amount) || 0;
     }
-  } catch (e) {
-    console.warn("cashSupplierPaid query failed (index?):", e);
   }
 
-  // Also include cash paid at purchase time
-  try {
-    const purchSnap = await adminDb
-      .collection("purchases")
-      .where("shopId", "==", sid)
-      .where("createdAt", ">=", startTs)
-      .where("createdAt", "<=", endTs)
-      .get();
+  // Include cash paid at purchase time.
+  for (const docSnap of purchSnap.docs) {
+    const data = docSnap.data();
 
-    for (const docSnap of purchSnap.docs) {
-      const data = docSnap.data();
-      if (data.paymentMethod === "নগদ (Cash)") {
-        cashSupplierPaid += Number(data.paidAmount) || 0;
-      }
+    if (data.paymentMethod === "নগদ (Cash)") {
+      cashSupplierPaid += Number(data.paidAmount) || 0;
     }
-  } catch (e) {
-    console.warn("purchase cash query failed (index?):", e);
   }
 
-  return { cashSales, cashDueCollected, cashExpenses, cashSupplierPaid };
+  return {
+    cashSales,
+    cashDueCollected,
+    cashExpenses,
+    cashSupplierPaid,
+  };
 }
 
 router.use(verifyUser);
 
 /** Get today's cash session (create if missing) */
-router.get(
-  "/today",
-  requirePermission("cash", "view"),
-  async (_req, res) => {
-    try {
-      const date = todayKey();
-      const docId = `${shopId()}_${date}`;
-      const ref = adminDb.collection("cashSessions").doc(docId);
-      const snap = await ref.get();
+router.get("/today", requirePermission("cash", "view"), async (_req, res) => {
+  try {
+    const date = getTodayDhakaDateKey();
+    const docId = `${shopId()}_${date}`;
+    const ref = adminDb.collection("cashSessions").doc(docId);
+    const snap = await ref.get();
 
-      let stored: Record<string, any>;
+    let stored: Record<string, any>;
 
-      if (!snap.exists) {
-        // Carry forward previous actual closing as opening if available
-        let openingCash = 0;
-        const y = new Date();
-        y.setUTCDate(y.getUTCDate() - 1);
-        const prevDate = y.toISOString().slice(0, 10);
-        const prevSnap = await adminDb
-          .collection("cashSessions")
-          .doc(`${shopId()}_${prevDate}`)
-          .get();
+    if (!snap.exists) {
+      // Carry forward previous actual closing as opening if available
+      let openingCash = 0;
+      const prevDate = addDateKeyDays(date, -1);
+      const prevSnap = await adminDb
+        .collection("cashSessions")
+        .doc(`${shopId()}_${prevDate}`)
+        .get();
 
-        if (prevSnap.exists) {
-          const prev = prevSnap.data() || {};
-          if (prev.actualClosingCash != null) {
-            openingCash = Number(prev.actualClosingCash) || 0;
-          } else {
-            openingCash = Number(prev.openingCash) || 0;
-          }
+      if (prevSnap.exists) {
+        const prev = prevSnap.data() || {};
+        if (prev.actualClosingCash != null) {
+          openingCash = Number(prev.actualClosingCash) || 0;
+        } else {
+          openingCash = Number(prev.openingCash) || 0;
         }
-
-        stored = {
-          shopId: shopId(),
-          date,
-          openingCash,
-          bKashBalance: Number(prevSnap.data()?.bKashBalance) || 0,
-          nagadBalance: Number(prevSnap.data()?.nagadBalance) || 0,
-          bankBalance: Number(prevSnap.data()?.bankBalance) || 0,
-          isClosed: false,
-          createdAt: FieldValue.serverTimestamp(),
-          updatedAt: FieldValue.serverTimestamp(),
-        };
-
-        await ref.set(stored);
-      } else {
-        stored = snap.data() || {};
       }
 
-      const computed = await computeCashTotals(date);
-      return res.json({
-        success: true,
-        session: mapSession(date, stored, computed),
-      });
-    } catch (error) {
-      console.error("Get cash session failed:", error);
-      return res.status(500).json({
-        success: false,
-        message: "Unable to load cash session.",
-      });
+      stored = {
+        shopId: shopId(),
+        date,
+        openingCash,
+        bKashBalance: Number(prevSnap.data()?.bKashBalance) || 0,
+        nagadBalance: Number(prevSnap.data()?.nagadBalance) || 0,
+        bankBalance: Number(prevSnap.data()?.bankBalance) || 0,
+        isClosed: false,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+
+      await ref.set(stored);
+    } else {
+      stored = snap.data() || {};
     }
-  },
-);
+
+    const computed = await computeCashTotals(date);
+    return res.json({
+      success: true,
+      session: mapSession(date, stored, computed),
+    });
+  } catch (error) {
+    console.error("Get cash session failed:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to load cash session.",
+    });
+  }
+});
 
 /** Set / update opening cash and digital balances (if not closed) */
 router.patch(
@@ -247,7 +230,7 @@ router.patch(
   requirePermission("cash", "manage"),
   async (req, res) => {
     try {
-      const date = todayKey();
+      const date = getTodayDhakaDateKey();
       const docId = `${shopId()}_${date}`;
       const ref = adminDb.collection("cashSessions").doc(docId);
       const snap = await ref.get();
@@ -277,7 +260,11 @@ router.patch(
         updates.openingCash = v;
       }
 
-      for (const key of ["bKashBalance", "nagadBalance", "bankBalance"] as const) {
+      for (const key of [
+        "bKashBalance",
+        "nagadBalance",
+        "bankBalance",
+      ] as const) {
         if (body[key] != null) {
           const v = Number(body[key]);
           if (!Number.isFinite(v) || v < 0) {
@@ -329,7 +316,7 @@ router.post(
   async (req, res) => {
     try {
       const authReq = req as AuthenticatedRequest;
-      const date = todayKey();
+      const date = getTodayDhakaDateKey();
       const docId = `${shopId()}_${date}`;
       const ref = adminDb.collection("cashSessions").doc(docId);
       const snap = await ref.get();

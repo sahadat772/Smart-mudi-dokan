@@ -35,11 +35,7 @@ function formatInvoiceNo(date = new Date()) {
   return `INV-${y}${m}${d}-${suffix}`;
 }
 
-function mapSale(
-  id: string,
-  data: Record<string, any>,
-  includeCost: boolean,
-) {
+function mapSale(id: string, data: Record<string, any>, includeCost: boolean) {
   const createdAt =
     data.createdAt?.toDate?.()?.toISOString?.() ||
     data.createdAt ||
@@ -115,13 +111,14 @@ router.get("/", requirePermission("pos", "view"), async (req, res) => {
   }
 });
 
-/** Create sale + deduct stock atomically. */
+/** Create sale + update stock and customer balance atomically. */
 router.post("/", requirePermission("pos", "manage"), async (req, res) => {
   try {
     const authReq = req as AuthenticatedRequest;
     const body = req.body || {};
 
     const rawItems = Array.isArray(body.items) ? body.items : [];
+
     if (rawItems.length === 0) {
       return res.status(400).json({
         success: false,
@@ -130,6 +127,7 @@ router.post("/", requirePermission("pos", "manage"), async (req, res) => {
     }
 
     const discount = Number(body.discount) || 0;
+
     if (!Number.isFinite(discount) || discount < 0) {
       return res.status(400).json({
         success: false,
@@ -138,6 +136,7 @@ router.post("/", requirePermission("pos", "manage"), async (req, res) => {
     }
 
     const paidAmountInput = Number(body.paidAmount);
+
     if (!Number.isFinite(paidAmountInput) || paidAmountInput < 0) {
       return res.status(400).json({
         success: false,
@@ -146,6 +145,7 @@ router.post("/", requirePermission("pos", "manage"), async (req, res) => {
     }
 
     const paymentMethod = body.paymentMethod;
+
     if (!isPaymentMethod(paymentMethod)) {
       return res.status(400).json({
         success: false,
@@ -153,21 +153,23 @@ router.post("/", requirePermission("pos", "manage"), async (req, res) => {
       });
     }
 
-    const customerName =
+    const requestedCustomerName =
       typeof body.customerName === "string" && body.customerName.trim()
         ? body.customerName.trim()
         : "সাধারণ ক্রেতা";
-    const customerPhone =
+
+    const requestedCustomerPhone =
       typeof body.customerPhone === "string" && body.customerPhone.trim()
         ? body.customerPhone.trim()
         : null;
+
     const customerId =
       typeof body.customerId === "string" && body.customerId.trim()
         ? body.customerId.trim()
         : null;
 
-    // Normalize line items
     const requested: { productId: string; quantity: number }[] = [];
+
     for (const item of rawItems) {
       const productId =
         typeof item?.productId === "string" ? item.productId.trim() : "";
@@ -183,8 +185,9 @@ router.post("/", requirePermission("pos", "manage"), async (req, res) => {
       requested.push({ productId, quantity });
     }
 
-    // Merge duplicate product lines
+    // Merge duplicate product lines.
     const qtyByProduct = new Map<string, number>();
+
     for (const line of requested) {
       qtyByProduct.set(
         line.productId,
@@ -193,20 +196,66 @@ router.post("/", requirePermission("pos", "manage"), async (req, res) => {
     }
 
     const productIds = [...qtyByProduct.keys()];
+
     const productRefs = productIds.map((id) =>
       adminDb.collection("products").doc(id),
     );
+
+    const customerRef = customerId
+      ? adminDb.collection("customers").doc(customerId)
+      : null;
 
     const saleRef = adminDb.collection("sales").doc();
     const includeCost = authReq.user?.role === "owner";
 
     const result = await adminDb.runTransaction(async (tx) => {
-      const productSnaps = await Promise.all(productRefs.map((ref) => tx.get(ref)));
+      // IMPORTANT: Complete every transaction read before any write.
+      const productSnaps = await Promise.all(
+        productRefs.map((ref) => tx.get(ref)),
+      );
+
+      const customerSnap = customerRef ? await tx.get(customerRef) : null;
+
+      let customerName = requestedCustomerName;
+      let customerPhone = requestedCustomerPhone;
+      let customerData: Record<string, any> | null = null;
+
+      if (customerRef) {
+        if (!customerSnap?.exists) {
+          throw Object.assign(new Error("Customer not found."), {
+            status: 404,
+          });
+        }
+
+        customerData = customerSnap.data() || {};
+
+        if (customerData.shopId !== shopId()) {
+          throw Object.assign(new Error("Customer not found."), {
+            status: 404,
+          });
+        }
+
+        if (customerData.active === false) {
+          throw Object.assign(new Error("Customer is inactive."), {
+            status: 400,
+          });
+        }
+
+        // Use the saved customer information as the source of truth.
+        customerName = customerData.name || requestedCustomerName;
+        customerPhone = customerData.phone || requestedCustomerPhone;
+      }
 
       const lineItems: Record<string, any>[] = [];
+      const stockUpdates: {
+        ref: FirebaseFirestore.DocumentReference;
+        stockQuantity: number;
+      }[] = [];
+
       let subtotal = 0;
       let cogsTotal = 0;
 
+      // Validate all products and calculate totals before writing.
       for (let i = 0; i < productSnaps.length; i++) {
         const snap = productSnaps[i];
         const productId = productIds[i];
@@ -219,6 +268,7 @@ router.post("/", requirePermission("pos", "manage"), async (req, res) => {
         }
 
         const data = snap.data() || {};
+
         if (data.shopId !== shopId() || data.active === false) {
           throw Object.assign(new Error(`Product unavailable: ${productId}`), {
             status: 400,
@@ -226,6 +276,7 @@ router.post("/", requirePermission("pos", "manage"), async (req, res) => {
         }
 
         const stock = Number(data.stockQuantity) || 0;
+
         if (stock < qty) {
           throw Object.assign(
             new Error(
@@ -238,6 +289,18 @@ router.post("/", requirePermission("pos", "manage"), async (req, res) => {
         const unitPrice = Number(data.sellingPrice) || 0;
         const costAtSale = Number(data.costPrice) || 0;
         const lineTotal = unitPrice * qty;
+
+        if (
+          !Number.isFinite(unitPrice) ||
+          unitPrice < 0 ||
+          !Number.isFinite(costAtSale) ||
+          costAtSale < 0
+        ) {
+          throw Object.assign(
+            new Error(`Invalid price or cost for ${data.name || productId}.`),
+            { status: 400 },
+          );
+        }
 
         subtotal += lineTotal;
         cogsTotal += costAtSale * qty;
@@ -255,16 +318,30 @@ router.post("/", requirePermission("pos", "manage"), async (req, res) => {
           total: lineTotal,
         });
 
-        tx.update(productRefs[i], {
+        stockUpdates.push({
+          ref: productRefs[i],
           stockQuantity: stock - qty,
-          updatedAt: FieldValue.serverTimestamp(),
         });
       }
 
-      const grandTotal = Math.max(0, subtotal - discount);
+      if (!Number.isFinite(subtotal) || discount > subtotal) {
+        throw Object.assign(
+          new Error("Discount cannot exceed the sale subtotal."),
+          { status: 400 },
+        );
+      }
+
+      const grandTotal = subtotal - discount;
       const paidAmount = Math.min(paidAmountInput, grandTotal);
-      const dueAmount = Math.max(0, grandTotal - paidAmount);
+      const dueAmount = grandTotal - paidAmount;
       const grossProfit = grandTotal - cogsTotal;
+      // Credit sales must be linked to a customer.
+      if (dueAmount > 0 && !customerRef) {
+        throw Object.assign(
+          new Error("Select a customer before completing a credit sale."),
+          { status: 400 },
+        );
+      }
 
       const soldBy =
         authReq.user?.displayName ||
@@ -297,7 +374,30 @@ router.post("/", requirePermission("pos", "manage"), async (req, res) => {
         createdAt: FieldValue.serverTimestamp(),
       };
 
+      // All writes happen only after all reads and validations.
+      for (const update of stockUpdates) {
+        tx.update(update.ref, {
+          stockQuantity: update.stockQuantity,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      }
+
       tx.set(saleRef, saleDoc);
+
+      // Keep customer purchase, paid and due balances synchronized.
+      if (customerRef && customerData) {
+        const previousPurchased = Number(customerData.totalPurchased) || 0;
+        const previousPaid = Number(customerData.totalPaid) || 0;
+        const previousDue = Number(customerData.currentDue) || 0;
+
+        tx.update(customerRef, {
+          totalPurchased: previousPurchased + grandTotal,
+          totalPaid: previousPaid + paidAmount,
+          currentDue: previousDue + dueAmount,
+          updatedAt: FieldValue.serverTimestamp(),
+          lastTransactionAt: FieldValue.serverTimestamp(),
+        });
+      }
 
       return {
         saleDoc,
@@ -308,14 +408,18 @@ router.post("/", requirePermission("pos", "manage"), async (req, res) => {
       };
     });
 
-    // Re-read stocks for response (post-transaction)
+    // Re-read stocks for the response after transaction completion.
     const updatedProducts: {
       id: string;
       stockQuantity: number;
     }[] = [];
 
     for (const line of result.updatedStocks) {
-      const snap = await adminDb.collection("products").doc(line.productId).get();
+      const snap = await adminDb
+        .collection("products")
+        .doc(line.productId)
+        .get();
+
       if (snap.exists) {
         updatedProducts.push({
           id: line.productId,
@@ -327,17 +431,20 @@ router.post("/", requirePermission("pos", "manage"), async (req, res) => {
     return res.status(201).json({
       success: true,
       message: "Sale completed successfully.",
-      sale: mapSale(saleRef.id, {
-        ...result.saleDoc,
-        createdAt: new Date(),
-      }, includeCost),
+      sale: mapSale(
+        saleRef.id,
+        {
+          ...result.saleDoc,
+          createdAt: new Date(),
+        },
+        includeCost,
+      ),
       updatedProducts,
     });
   } catch (error: any) {
     console.error("Create sale failed:", error);
 
-    const status = error?.status || 500;
-    return res.status(status).json({
+    return res.status(error?.status || 500).json({
       success: false,
       message: error?.message || "Unable to complete sale.",
     });
