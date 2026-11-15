@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { auth } from "../../firebase";
+import { apiFetch } from "../../api/client";
 
 type JobRole =
   | "manager"
@@ -88,31 +88,6 @@ const roleDefaults: Record<Exclude<JobRole, "custom">, PermissionSet> = {
   },
 };
 
-async function ownerFetch(path: string, options: RequestInit = {}) {
-  const currentUser = auth.currentUser;
-  if (!currentUser) {
-    throw new Error("Please login with your Owner account.");
-  }
-
-  const idToken = await currentUser.getIdToken();
-  const response = await fetch(path, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${idToken}`,
-      ...(options.headers || {}),
-    },
-  });
-
-  const data = await response.json();
-
-  if (!response.ok || data.success === false) {
-    throw new Error(data.message || "Request failed.");
-  }
-
-  return data;
-}
-
 const StaffManagement: React.FC = () => {
   const [showForm, setShowForm] = useState(false);
   const [staffName, setStaffName] = useState("");
@@ -133,7 +108,8 @@ const StaffManagement: React.FC = () => {
   const loadStaff = async () => {
     try {
       setListLoading(true);
-      const data = await ownerFetch("/api/staff");
+      setError("");
+      const data = await apiFetch<{ employees?: StaffMember[] }>("/api/staff");
       setStaffList(data.employees || []);
     } catch (err) {
       console.error("Failed to load staff:", err);
@@ -224,7 +200,7 @@ const StaffManagement: React.FC = () => {
 
     try {
       setLoading(true);
-      await ownerFetch("/api/staff", {
+      await apiFetch("/api/staff", {
         method: "POST",
         body: JSON.stringify({
           name: staffName.trim(),
@@ -254,7 +230,7 @@ const StaffManagement: React.FC = () => {
     setStatusBusyUid(uid);
 
     try {
-      await ownerFetch(`/api/staff/${uid}/status`, {
+      await apiFetch(`/api/staff/${uid}/status`, {
         method: "PATCH",
         body: JSON.stringify({ active: nextActive }),
       });
