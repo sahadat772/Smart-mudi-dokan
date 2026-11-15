@@ -90,7 +90,7 @@ export const Topbar: React.FC<TopbarProps> = ({
           onClick={onLogout}
           className="flex items-center gap-1.5 rounded-xl border border-slate-200 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
         >
-          <LogOut className="h-3.5 h-3.5" />
+          <LogOut className="h-3.5 w-3.5" />
           <span className="hidden sm:inline">লগআউট</span>
         </button>
       </div>
