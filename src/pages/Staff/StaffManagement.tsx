@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { UserPlus, Users, UserCheck, UserX, Shield } from "lucide-react";
 import { apiFetch } from "../../api/client";
 
 type JobRole =
@@ -9,16 +10,16 @@ type JobRole =
   | "custom";
 
 const modules = [
-  { key: "dashboard", label: "Dashboard" },
-  { key: "pos", label: "POS / Sales" },
-  { key: "products", label: "Products & Inventory" },
-  { key: "customers", label: "Customers" },
-  { key: "purchases", label: "Purchases" },
-  { key: "expenses", label: "Expenses" },
-  { key: "cash", label: "Cash Management" },
-  { key: "reports", label: "Reports" },
-  { key: "staff", label: "Staff Management" },
-  { key: "settings", label: "Settings" },
+  { key: "dashboard", label: "ড্যাশবোর্ড" },
+  { key: "pos", label: "বিক্রি (POS)" },
+  { key: "products", label: "পণ্য ও স্টক" },
+  { key: "customers", label: "কাস্টমার ও বাকি" },
+  { key: "purchases", label: "ক্রয় ও মহাজন" },
+  { key: "expenses", label: "খরচ" },
+  { key: "cash", label: "ক্যাশ" },
+  { key: "reports", label: "রিপোর্ট" },
+  { key: "staff", label: "কর্মচারী" },
+  { key: "settings", label: "সেটিংস" },
 ] as const;
 
 type ModuleKey = (typeof modules)[number]["key"];
@@ -38,6 +39,14 @@ interface StaffMember {
   active: boolean;
   lastLoginAt?: string;
 }
+
+const roleLabels: Record<string, string> = {
+  manager: "ম্যানেজার",
+  cashier: "ক্যাশিয়ার",
+  sales_staff: "বিক্রয় কর্মী",
+  inventory_staff: "স্টক কর্মী",
+  custom: "কাস্টম",
+};
 
 const createEmptyPermissions = (): PermissionSet => ({
   dashboard: { view: false, manage: false },
@@ -116,7 +125,7 @@ const StaffManagement: React.FC = () => {
       setError(
         err instanceof Error
           ? err.message
-          : "Unable to load employee list from server.",
+          : "কর্মচারী তালিকা লোড করা যায়নি।",
       );
     } finally {
       setListLoading(false);
@@ -174,17 +183,17 @@ const StaffManagement: React.FC = () => {
     setSuccess("");
 
     if (password !== confirmPassword) {
-      setError("Password and Confirm Password do not match.");
+      setError("পাসওয়ার্ড ও নিশ্চিতকরণ মিলছে না।");
       return;
     }
 
     if (password.length < 8) {
-      setError("Temporary password must contain at least 8 characters.");
+      setError("অস্থায়ী পাসওয়ার্ড কমপক্ষে ৮ অক্ষরের হতে হবে।");
       return;
     }
 
     if (!staffName.trim() || !staffEmail.trim()) {
-      setError("Please enter employee name and email.");
+      setError("নাম ও ইমেইল দিন।");
       return;
     }
 
@@ -193,7 +202,7 @@ const StaffManagement: React.FC = () => {
         ({ key }) => permissions[key].view || permissions[key].manage,
       );
       if (!hasPermission) {
-        setError("Please select at least one permission for Custom role.");
+        setError("কাস্টম রোলে অন্তত একটি অনুমতি দিন।");
         return;
       }
     }
@@ -212,13 +221,13 @@ const StaffManagement: React.FC = () => {
       });
 
       setSuccess(
-        "Employee account created successfully. Temporary password is ready for first login.",
+        "কর্মচারী অ্যাকাউন্ট তৈরি হয়েছে। প্রথম লগইনে পাসওয়ার্ড বদলাতে হবে।",
       );
       resetForm();
       setShowForm(false);
       await loadStaff();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong.");
+      setError(err instanceof Error ? err.message : "কিছু সমস্যা হয়েছে।");
     } finally {
       setLoading(false);
     }
@@ -236,12 +245,12 @@ const StaffManagement: React.FC = () => {
       });
       setSuccess(
         nextActive
-          ? "Employee activated."
-          : "Employee deactivated. Sessions revoked.",
+          ? "কর্মচারী সক্রিয় করা হয়েছে।"
+          : "কর্মচারী নিষ্ক্রিয়; সেশন বাতিল।",
       );
       await loadStaff();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Status update failed.");
+      setError(err instanceof Error ? err.message : "স্ট্যাটাস আপডেট ব্যর্থ।");
     } finally {
       setStatusBusyUid(null);
     }
@@ -251,12 +260,14 @@ const StaffManagement: React.FC = () => {
   const inactiveStaff = staffList.filter((staff) => !staff.active).length;
 
   return (
-    <div className="p-4 md:p-6 space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div className="space-y-6">
+      <div className="flex flex-col gap-4 border-b border-slate-200 pb-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-800">Staff Management</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Manage employees, roles and permissions via secure API.
+          <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
+            কর্মচারী ম্যানেজমেন্ট
+          </h1>
+          <p className="mt-0.5 text-xs text-slate-500 sm:text-sm">
+            রোল, অনুমতি ও অ্যাকাউন্ট — সিকিউর API দিয়ে
           </p>
         </div>
 
@@ -267,68 +278,85 @@ const StaffManagement: React.FC = () => {
             setError("");
             setSuccess("");
           }}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-medium"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-700"
         >
-          + Add New Staff
+          <UserPlus className="h-4 w-4" />
+          নতুন কর্মচারী
         </button>
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-4">
+        <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
           {error}
         </div>
       )}
 
       {success && (
-        <div className="bg-green-50 border border-green-200 text-green-700 rounded-lg p-4">
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
           {success}
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white border rounded-xl p-5">
-          <p className="text-sm text-gray-500">Total Staff</p>
-          <h2 className="text-3xl font-bold mt-2">{staffList.length}</h2>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <Users className="h-4 w-4" />
+            মোট কর্মচারী
+          </div>
+          <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">
+            {staffList.length}
+          </div>
         </div>
-        <div className="bg-white border rounded-xl p-5">
-          <p className="text-sm text-gray-500">Active Staff</p>
-          <h2 className="text-3xl font-bold text-green-600 mt-2">
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <UserCheck className="h-4 w-4 text-emerald-600" />
+            সক্রিয়
+          </div>
+          <div className="mt-1 text-2xl font-bold tabular-nums text-emerald-700">
             {activeStaff}
-          </h2>
+          </div>
         </div>
-        <div className="bg-white border rounded-xl p-5">
-          <p className="text-sm text-gray-500">Inactive Staff</p>
-          <h2 className="text-3xl font-bold text-red-500 mt-2">
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <UserX className="h-4 w-4 text-rose-500" />
+            নিষ্ক্রিয়
+          </div>
+          <div className="mt-1 text-2xl font-bold tabular-nums text-rose-600">
             {inactiveStaff}
-          </h2>
+          </div>
         </div>
       </div>
 
       {showForm && (
-        <div className="bg-white border rounded-xl p-5 space-y-6">
+        <div className="space-y-5 rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
           <div>
-            <h2 className="text-xl font-semibold">Add New Staff Member</h2>
-            <p className="text-sm text-gray-500 mt-1">
-              Create an employee account and assign permissions.
+            <h2 className="text-lg font-semibold text-slate-900">
+              নতুন কর্মচারী যোগ
+            </h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              অ্যাকাউন্ট তৈরি করে অনুমতি নির্ধারণ করুন
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={handleSubmit} className="space-y-4 text-xs">
             <div>
-              <label className="block text-sm font-medium mb-1">Full Name</label>
+              <label className="mb-1 block font-medium text-slate-700">
+                পূর্ণ নাম *
+              </label>
               <input
                 type="text"
                 required
                 maxLength={100}
                 value={staffName}
                 onChange={(e) => setStaffName(e.target.value)}
-                className="w-full border rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500"
+                placeholder="যেমন: করিম আলী"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1">
-                Email Address
+              <label className="mb-1 block font-medium text-slate-700">
+                ইমেইল *
               </label>
               <input
                 type="email"
@@ -336,14 +364,15 @@ const StaffManagement: React.FC = () => {
                 maxLength={254}
                 value={staffEmail}
                 onChange={(e) => setStaffEmail(e.target.value)}
-                className="w-full border rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500"
+                placeholder="staff@example.com"
               />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div>
-                <label className="block text-sm font-medium mb-1">
-                  Temporary Password
+                <label className="mb-1 block font-medium text-slate-700">
+                  অস্থায়ী পাসওয়ার্ড *
                 </label>
                 <input
                   type="password"
@@ -353,12 +382,12 @@ const StaffManagement: React.FC = () => {
                   autoComplete="new-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full border rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">
-                  Confirm Password
+                <label className="mb-1 block font-medium text-slate-700">
+                  পাসওয়ার্ড নিশ্চিত *
                 </label>
                 <input
                   type="password"
@@ -368,49 +397,50 @@ const StaffManagement: React.FC = () => {
                   autoComplete="new-password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full border rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1">
-                Employee Role
+              <label className="mb-1 block font-medium text-slate-700">
+                রোল
               </label>
               <select
                 value={selectedRole}
                 onChange={(e) => handleRoleChange(e.target.value as JobRole)}
-                className="w-full border rounded-lg px-3 py-2.5 bg-white outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500"
               >
-                <option value="manager">Manager</option>
-                <option value="cashier">Cashier</option>
-                <option value="sales_staff">Sales Staff</option>
-                <option value="inventory_staff">Inventory Staff</option>
-                <option value="custom">Custom</option>
+                <option value="manager">ম্যানেজার</option>
+                <option value="cashier">ক্যাশিয়ার</option>
+                <option value="sales_staff">বিক্রয় কর্মী</option>
+                <option value="inventory_staff">স্টক কর্মী</option>
+                <option value="custom">কাস্টম</option>
               </select>
             </div>
 
-            <div className="border rounded-xl overflow-hidden">
-              <div className="bg-gray-50 p-4 border-b">
-                <h3 className="font-semibold text-gray-800">Role Permissions</h3>
+            <div className="overflow-hidden rounded-xl border border-slate-200">
+              <div className="flex items-center gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3">
+                <Shield className="h-4 w-4 text-emerald-600" />
+                <h3 className="font-semibold text-slate-800">অনুমতি</h3>
               </div>
-              <div className="p-4 space-y-3">
-                <div className="grid grid-cols-12 gap-2 text-xs font-semibold text-gray-500 border-b pb-3">
-                  <div className="col-span-6 sm:col-span-8">MODULE</div>
-                  <div className="col-span-3 sm:col-span-2 text-center">VIEW</div>
-                  <div className="col-span-3 sm:col-span-2 text-center">
-                    MANAGE
+              <div className="space-y-2 p-4">
+                <div className="grid grid-cols-12 gap-2 border-b border-slate-100 pb-2 text-[11px] font-semibold text-slate-500">
+                  <div className="col-span-6 sm:col-span-8">মডিউল</div>
+                  <div className="col-span-3 text-center sm:col-span-2">দেখা</div>
+                  <div className="col-span-3 text-center sm:col-span-2">
+                    পরিচালনা
                   </div>
                 </div>
                 {modules.map((module) => (
                   <div
                     key={module.key}
-                    className="grid grid-cols-12 gap-2 items-center py-2 border-b last:border-0"
+                    className="grid grid-cols-12 items-center gap-2 border-b border-slate-50 py-2 last:border-0"
                   >
-                    <div className="col-span-6 sm:col-span-8 text-sm font-medium text-gray-700">
+                    <div className="col-span-6 text-sm font-medium text-slate-700 sm:col-span-8">
                       {module.label}
                     </div>
-                    <div className="col-span-3 sm:col-span-2 flex justify-center">
+                    <div className="col-span-3 flex justify-center sm:col-span-2">
                       <input
                         type="checkbox"
                         checked={permissions[module.key].view}
@@ -421,10 +451,10 @@ const StaffManagement: React.FC = () => {
                             e.target.checked,
                           )
                         }
-                        className="h-4 w-4 accent-blue-600"
+                        className="h-4 w-4 accent-emerald-600"
                       />
                     </div>
-                    <div className="col-span-3 sm:col-span-2 flex justify-center">
+                    <div className="col-span-3 flex justify-center sm:col-span-2">
                       <input
                         type="checkbox"
                         checked={permissions[module.key].manage}
@@ -435,7 +465,7 @@ const StaffManagement: React.FC = () => {
                             e.target.checked,
                           )
                         }
-                        className="h-4 w-4 accent-blue-600"
+                        className="h-4 w-4 accent-emerald-600"
                       />
                     </div>
                   </div>
@@ -443,13 +473,13 @@ const StaffManagement: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-3 pt-2">
+            <div className="flex flex-wrap gap-2 border-t border-slate-200 pt-3">
               <button
                 type="submit"
                 disabled={loading}
-                className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-5 py-2.5 rounded-lg font-medium"
+                className="rounded-lg bg-emerald-600 px-5 py-2.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
               >
-                {loading ? "Creating Account..." : "Create Employee Account"}
+                {loading ? "তৈরি হচ্ছে..." : "অ্যাকাউন্ট তৈরি"}
               </button>
               <button
                 type="button"
@@ -459,73 +489,81 @@ const StaffManagement: React.FC = () => {
                   resetForm();
                   setError("");
                 }}
-                className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-5 py-2.5 rounded-lg"
+                className="rounded-lg border border-slate-300 px-4 py-2.5 text-xs text-slate-700 hover:bg-slate-50"
               >
-                Cancel
+                বাতিল
               </button>
             </div>
           </form>
         </div>
       )}
 
-      <div className="bg-white border rounded-xl overflow-hidden">
-        <div className="p-5 border-b">
-          <h2 className="text-lg font-semibold">Staff List</h2>
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
+        <div className="border-b border-slate-200 bg-slate-50/70 px-4 py-3">
+          <h2 className="text-sm font-semibold text-slate-800">কর্মচারী তালিকা</h2>
         </div>
 
         {listLoading ? (
-          <div className="p-10 text-center text-gray-500">
-            Loading staff members...
+          <div className="p-10 text-center text-sm text-slate-500">
+            লোড হচ্ছে...
           </div>
         ) : staffList.length === 0 ? (
-          <div className="p-10 text-center">
-            <p className="text-gray-500 font-medium">No staff members found.</p>
+          <div className="p-10 text-center text-sm text-slate-500">
+            এখনো কোনো কর্মচারী নেই। উপরের বাটন দিয়ে যোগ করুন।
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50">
+            <table className="w-full text-left text-xs">
+              <thead className="border-b border-slate-200 bg-slate-50 text-[11px] text-slate-500">
                 <tr>
-                  <th className="text-left p-4">Name</th>
-                  <th className="text-left p-4">Email</th>
-                  <th className="text-left p-4">Role</th>
-                  <th className="text-left p-4">Status</th>
-                  <th className="text-left p-4">Last Login</th>
-                  <th className="text-left p-4">Actions</th>
+                  <th className="px-4 py-3 font-medium">নাম</th>
+                  <th className="px-4 py-3 font-medium">ইমেইল</th>
+                  <th className="px-4 py-3 font-medium">রোল</th>
+                  <th className="px-4 py-3 font-medium">স্ট্যাটাস</th>
+                  <th className="px-4 py-3 font-medium">শেষ লগইন</th>
+                  <th className="px-4 py-3 font-medium">অ্যাকশন</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-slate-100">
                 {staffList.map((staff) => (
-                  <tr key={staff.uid} className="border-t">
-                    <td className="p-4 font-medium">{staff.name}</td>
-                    <td className="p-4">{staff.email}</td>
-                    <td className="p-4">{staff.jobRole}</td>
-                    <td className="p-4">
-                      <span
-                        className={`px-2 py-1 rounded text-xs font-medium ${
-                          staff.active
-                            ? "bg-green-50 text-green-700"
-                            : "bg-red-50 text-red-700"
-                        }`}
-                      >
-                        {staff.active ? "Active" : "Inactive"}
+                  <tr key={staff.uid} className="hover:bg-slate-50/70">
+                    <td className="px-4 py-3 font-medium text-slate-900">
+                      {staff.name}
+                    </td>
+                    <td className="px-4 py-3 text-slate-600">{staff.email}</td>
+                    <td className="px-4 py-3">
+                      <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700">
+                        {roleLabels[staff.jobRole] || staff.jobRole}
                       </span>
                     </td>
-                    <td className="p-4">{staff.lastLoginAt || "Never"}</td>
-                    <td className="p-4">
+                    <td className="px-4 py-3">
+                      <span
+                        className={`rounded px-2 py-0.5 text-[11px] font-medium ${
+                          staff.active
+                            ? "bg-emerald-50 text-emerald-700"
+                            : "bg-rose-50 text-rose-700"
+                        }`}
+                      >
+                        {staff.active ? "সক্রিয়" : "নিষ্ক্রিয়"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-slate-500">
+                      {staff.lastLoginAt || "কখনো নয়"}
+                    </td>
+                    <td className="px-4 py-3">
                       <button
                         type="button"
                         disabled={statusBusyUid === staff.uid}
                         onClick={() =>
                           void toggleActive(staff.uid, !staff.active)
                         }
-                        className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-50"
+                        className="rounded-lg border border-slate-200 px-3 py-1.5 text-[11px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                       >
                         {statusBusyUid === staff.uid
-                          ? "Updating..."
+                          ? "আপডেট..."
                           : staff.active
-                            ? "Deactivate"
-                            : "Activate"}
+                            ? "নিষ্ক্রিয় করুন"
+                            : "সক্রিয় করুন"}
                       </button>
                     </td>
                   </tr>
