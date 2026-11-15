@@ -10,7 +10,6 @@ import {
   BarChart3,
   Settings,
   X,
-  Store,
   ChevronRight,
   ShieldCheck,
   UserRound,
@@ -178,12 +177,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
     <div className="flex h-full flex-col bg-[#0f172a] text-slate-300">
       <div className="border-b border-white/10 px-5 py-5">
         <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-500 text-white shadow-lg shadow-emerald-950/40">
-            <Store className="h-5 w-5" />
-          </div>
+          <img
+            src="/logo.svg"
+            alt="Smart Mudi"
+            className="h-11 w-11 shrink-0 rounded-2xl bg-white shadow-lg shadow-emerald-950/30"
+          />
           <div className="min-w-0">
             <h1 className="truncate text-[15px] font-bold text-white">স্মার্ট মুদি</h1>
-            <p className="mt-0.5 text-[11px] text-slate-400">Manager</p>
+            <p className="mt-0.5 text-[11px] tracking-wide text-slate-400">MANAGER</p>
           </div>
         </div>
       </div>

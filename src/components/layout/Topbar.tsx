@@ -1,5 +1,5 @@
 import React from "react";
-import { Menu, Store, AlertTriangle, LogOut, Shield, User } from "lucide-react";
+import { Menu, AlertTriangle, LogOut, Shield, User } from "lucide-react";
 import { UserRole } from "../../types";
 
 interface TopbarProps {
@@ -37,15 +37,17 @@ export const Topbar: React.FC<TopbarProps> = ({
         </button>
 
         <div className="flex min-w-0 items-center gap-2.5">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-sm">
-            <Store className="h-4 w-4" />
-          </div>
+          <img
+            src="/logo.svg"
+            alt="Smart Mudi"
+            className="h-9 w-9 shrink-0 rounded-xl bg-white shadow-sm ring-1 ring-slate-200"
+          />
           <div className="min-w-0">
             <p className="truncate text-sm font-bold leading-tight text-slate-900 sm:text-base">
               {shopName}
             </p>
             <p className="hidden truncate text-[11px] text-slate-500 sm:block">
-              স্মার্ট মুদি ম্যানেজার
+              Smart Mudi Manager
             </p>
           </div>
         </div>
@@ -88,7 +90,7 @@ export const Topbar: React.FC<TopbarProps> = ({
           onClick={onLogout}
           className="flex items-center gap-1.5 rounded-xl border border-slate-200 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
         >
-          <LogOut className="h-3.5 w-3.5" />
+          <LogOut className="h-3.5 h-3.5" />
           <span className="hidden sm:inline">লগআউট</span>
         </button>
       </div>
