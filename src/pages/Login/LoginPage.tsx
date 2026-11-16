@@ -8,10 +8,10 @@ import {
   Eye,
   EyeOff,
   KeyRound,
-  User,
   Phone,
 } from "lucide-react";
 import {
+  User,
   signInWithEmailAndPassword,
   sendPasswordResetEmail,
   signOut,
@@ -21,11 +21,10 @@ import { auth, db } from "../../firebase";
 import { UserRole } from "../../types";
 
 const API_BASE =
-  (import.meta as any).env?.VITE_API_BASE_URL?.replace(/\/$/, "") ||
-  "";
+  (import.meta as any).env?.VITE_API_BASE_URL?.replace(/\/$/, "") || "";
 
 interface LoginPageProps {
-  onLoginSuccess: (role: UserRole, mustChangePassword: boolean) => void;
+  onLoginSuccess: (user: User, role: UserRole, mustChangePassword: boolean) => void;
   currentRole: UserRole;
 }
 
@@ -100,13 +99,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
         return;
       }
 
-      if (!userData.shopId) {
-        await signOut(auth);
-        setError("এই অ্যাকাউন্টের সাথে কোনো দোকান যুক্ত নেই।");
-        return;
-      }
-
       onLoginSuccess(
+        user,
         userData.role as UserRole,
         userData.role === "employee" && userData.mustChangePassword === true,
       );
@@ -309,7 +303,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-700"
                   >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    {showPassword ? (
+                      <EyeOff className="w-4 h-4" />
+                    ) : (
+                      <Eye className="w-4 h-4" />
+                    )}
                   </button>
                 </div>
               </div>
@@ -367,7 +365,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                   মালিকের নাম
                 </label>
                 <div className="relative">
-                  <User className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                  {/* <User className="w-4 h-4 text-slate-400 absolute left-3 top-3" /> */}
                   <input
                     type="text"
                     value={ownerName}
@@ -432,7 +430,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-700"
                   >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    {showPassword ? (
+                      <EyeOff className="w-4 h-4" />
+                    ) : (
+                      <Eye className="w-4 h-4" />
+                    )}
                   </button>
                 </div>
               </div>

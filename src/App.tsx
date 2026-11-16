@@ -267,7 +267,8 @@ export default function App() {
 
   const canAccessPage = (page: NavPageId): boolean => {
     if (currentRole === "owner") return true;
-    if (page === "staff" || page === "settings" || page === "login") return false;
+    if (page === "staff" || page === "settings" || page === "login")
+      return false;
     if (page === "change-password") return mustChangePassword;
     return userPermissions[page]?.view === true;
   };
@@ -368,7 +369,9 @@ export default function App() {
   const handleAddSupplier = (newSupplier: Supplier) =>
     setSuppliers((prev) => [newSupplier, ...prev]);
   const handleUpdateSupplier = (updated: Supplier) =>
-    setSuppliers((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+    setSuppliers((prev) =>
+      prev.map((s) => (s.id === updated.id ? updated : s)),
+    );
 
   const handleAddPurchase = (
     purchase: Purchase,
@@ -452,7 +455,8 @@ export default function App() {
     return (
       <LoginPage
         currentRole="owner"
-        onLoginSuccess={(role, needsPasswordChange) => {
+        onLoginSuccess={(user, role, needsPasswordChange) => {
+          setAuthUser(user);
           setCurrentRole(role);
           setMustChangePassword(needsPasswordChange);
           setCurrentPage(needsPasswordChange ? "change-password" : "dashboard");
