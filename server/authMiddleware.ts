@@ -111,6 +111,14 @@ export async function verifyUser(
       authUser.shopId = decodedToken.shopId;
     }
 
+    // Multi-tenant: every user must be bound to a shop.
+    if (!authUser.shopId) {
+      return res.status(403).json({
+        success: false,
+        message: "Shop is not linked to this account.",
+      });
+    }
+
     req.user = authUser;
     next();
   } catch (error) {
@@ -123,7 +131,7 @@ export async function verifyUser(
   }
 }
 
-/** Require shop owner. */
+/** Require shop owner (any shop owner in multi-tenant mode). */
 export async function verifyOwner(
   req: AuthenticatedRequest,
   res: Response,
@@ -137,8 +145,12 @@ export async function verifyOwner(
       });
     }
 
-    // Optional hard lock to a specific owner UID when configured.
-    if (process.env.OWNER_UID && req.user.uid !== process.env.OWNER_UID) {
+    // Legacy single-tenant lock — only when STRICT_OWNER_UID=true
+    if (
+      process.env.STRICT_OWNER_UID === "true" &&
+      process.env.OWNER_UID &&
+      req.user.uid !== process.env.OWNER_UID
+    ) {
       return res.status(403).json({
         success: false,
         message: "Only the shop owner can perform this action.",
