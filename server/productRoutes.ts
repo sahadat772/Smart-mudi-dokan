@@ -6,6 +6,7 @@ import {
   requirePermission,
   type AuthenticatedRequest,
 } from "./authMiddleware.js";
+import { resolveShopId } from "./shopContext.js";
 
 const router = Router();
 
@@ -32,8 +33,6 @@ const UNITS = [
   "বস্তা",
   "কার্টুন",
 ] as const;
-
-const shopId = () => process.env.SHOP_ID || "default";
 
 function toProduct(
   id: string,
@@ -82,31 +81,24 @@ function parseProductBody(body: Record<string, unknown>, isUpdate: boolean) {
   if (!name || name.length > 200) {
     return { error: "Valid product name is required." };
   }
-
   if (!CATEGORIES.includes(category as (typeof CATEGORIES)[number])) {
     return { error: "Invalid product category." };
   }
-
   if (!UNITS.includes(unit as (typeof UNITS)[number])) {
     return { error: "Invalid product unit." };
   }
-
   if (!sku || sku.length > 64) {
     return { error: "Valid SKU is required." };
   }
-
   if (!Number.isFinite(costPrice) || costPrice < 0) {
     return { error: "Valid cost price is required." };
   }
-
   if (!Number.isFinite(sellingPrice) || sellingPrice < 0) {
     return { error: "Valid selling price is required." };
   }
-
   if (!Number.isFinite(stockQuantity) || stockQuantity < 0) {
     return { error: "Valid stock quantity is required." };
   }
-
   if (!Number.isFinite(lowStockThreshold) || lowStockThreshold < 0) {
     return { error: "Valid low-stock threshold is required." };
   }
@@ -123,7 +115,7 @@ function parseProductBody(body: Record<string, unknown>, isUpdate: boolean) {
       stockQuantity,
       lowStockThreshold,
       shelfLocation: shelfLocation || null,
-      ...(isUpdate ? {} : { active: true, shopId: shopId() }),
+      ...(isUpdate ? {} : { active: true }),
     },
   };
 }
@@ -134,10 +126,11 @@ router.get("/", requirePermission("products", "view"), async (req, res) => {
   try {
     const authReq = req as AuthenticatedRequest;
     const includeCost = authReq.user?.role === "owner";
+    const sid = resolveShopId(authReq);
 
     const snapshot = await adminDb
       .collection("products")
-      .where("shopId", "==", shopId())
+      .where("shopId", "==", sid)
       .where("active", "==", true)
       .get();
 
@@ -168,9 +161,10 @@ router.post(
         });
       }
 
+      const sid = resolveShopId(authReq);
       const existing = await adminDb
         .collection("products")
-        .where("shopId", "==", shopId())
+        .where("shopId", "==", sid)
         .limit(1)
         .get();
 
@@ -249,7 +243,7 @@ router.post(
         const ref = adminDb.collection("products").doc();
         batch.set(ref, {
           ...item,
-          shopId: shopId(),
+          shopId: sid,
           active: true,
           createdAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp(),
@@ -278,9 +272,11 @@ router.post("/", requirePermission("products", "manage"), async (req, res) => {
       return res.status(400).json({ success: false, message: parsed.error });
     }
 
+    const sid = resolveShopId(req as AuthenticatedRequest);
+
     const existingSku = await adminDb
       .collection("products")
-      .where("shopId", "==", shopId())
+      .where("shopId", "==", sid)
       .where("sku", "==", parsed.data.sku)
       .limit(1)
       .get();
@@ -295,6 +291,7 @@ router.post("/", requirePermission("products", "manage"), async (req, res) => {
     const docRef = adminDb.collection("products").doc();
     await docRef.set({
       ...parsed.data,
+      shopId: sid,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     });
@@ -305,7 +302,7 @@ router.post("/", requirePermission("products", "manage"), async (req, res) => {
       message: "Product created successfully.",
       product: toProduct(
         docRef.id,
-        { ...parsed.data, updatedAt: new Date() },
+        { ...parsed.data, shopId: sid, updatedAt: new Date() },
         authReq.user?.role === "owner",
       ),
     });
@@ -324,6 +321,7 @@ router.put(
   async (req, res) => {
     try {
       const { id } = req.params;
+      const sid = resolveShopId(req as AuthenticatedRequest);
       const parsed = parseProductBody(req.body || {}, true);
 
       if (parsed.error || !parsed.data) {
@@ -333,7 +331,7 @@ router.put(
       const docRef = adminDb.collection("products").doc(id);
       const snap = await docRef.get();
 
-      if (!snap.exists || snap.data()?.shopId !== shopId()) {
+      if (!snap.exists || snap.data()?.shopId !== sid) {
         return res.status(404).json({
           success: false,
           message: "Product not found.",
@@ -343,7 +341,7 @@ router.put(
       if (parsed.data.sku !== snap.data()?.sku) {
         const existingSku = await adminDb
           .collection("products")
-          .where("shopId", "==", shopId())
+          .where("shopId", "==", sid)
           .where("sku", "==", parsed.data.sku)
           .limit(1)
           .get();
@@ -387,10 +385,11 @@ router.delete(
   async (req, res) => {
     try {
       const { id } = req.params;
+      const sid = resolveShopId(req as AuthenticatedRequest);
       const docRef = adminDb.collection("products").doc(id);
       const snap = await docRef.get();
 
-      if (!snap.exists || snap.data()?.shopId !== shopId()) {
+      if (!snap.exists || snap.data()?.shopId !== sid) {
         return res.status(404).json({
           success: false,
           message: "Product not found.",
