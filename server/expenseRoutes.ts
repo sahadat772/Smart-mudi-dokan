@@ -6,10 +6,9 @@ import {
   requirePermission,
   type AuthenticatedRequest,
 } from "./authMiddleware.js";
+import { resolveShopId } from "./shopContext.js";
 
 const router = Router();
-
-const shopId = () => process.env.SHOP_ID || "default";
 
 const EXPENSE_CATEGORIES = [
   "দোকান ভাড়া",
@@ -55,17 +54,18 @@ router.get("/", requirePermission("expenses", "view"), async (req, res) => {
     const limit = Math.min(Number(req.query.limit) || 100, 200);
     const category =
       typeof req.query.category === "string" ? req.query.category : null;
+    const sid = resolveShopId(req as AuthenticatedRequest);
 
     let query = adminDb
       .collection("expenses")
-      .where("shopId", "==", shopId())
+      .where("shopId", "==", sid)
       .orderBy("createdAt", "desc")
       .limit(limit);
 
     if (category && category !== "all") {
       query = adminDb
         .collection("expenses")
-        .where("shopId", "==", shopId())
+        .where("shopId", "==", sid)
         .where("category", "==", category)
         .orderBy("createdAt", "desc")
         .limit(limit);
@@ -89,6 +89,7 @@ router.post("/", requirePermission("expenses", "manage"), async (req, res) => {
   try {
     const authReq = req as AuthenticatedRequest;
     const body = req.body || {};
+    const sid = resolveShopId(authReq);
 
     const category = body.category;
     const title = typeof body.title === "string" ? body.title.trim() : "";
@@ -136,7 +137,7 @@ router.post("/", requirePermission("expenses", "manage"), async (req, res) => {
 
     const docRef = adminDb.collection("expenses").doc();
     const payload = {
-      shopId: shopId(),
+      shopId: sid,
       category,
       title,
       amount,

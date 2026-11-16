@@ -2,12 +2,10 @@ import { Router } from "express";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminAuth, adminDb } from "./firebaseAdmin.js";
 import { verifyUser, type AuthenticatedRequest } from "./authMiddleware.js";
+import { resolveShopId } from "./shopContext.js";
 
 const router = Router();
 
-const shopId = () => process.env.SHOP_ID || "default";
-
-/** Current session profile for the logged-in user. */
 router.get("/me", verifyUser, async (req: AuthenticatedRequest, res) => {
   const user = req.user!;
 
@@ -27,9 +25,8 @@ router.get("/me", verifyUser, async (req: AuthenticatedRequest, res) => {
 });
 
 /**
- * One-time (or safe re-run) bootstrap for the shop owner account.
- * Requires OWNER_UID in server/.env and a valid token for that UID.
- * Sets custom claims + ensures users/{uid} owner profile exists.
+ * Legacy bootstrap for the first owner on a single-tenant install.
+ * Multi-tenant shops should use POST /api/shops/register instead.
  */
 router.post("/bootstrap-owner", async (req, res) => {
   try {
@@ -61,9 +58,11 @@ router.post("/bootstrap-owner", async (req, res) => {
       });
     }
 
+    const sid = process.env.SHOP_ID?.trim() || "default";
+
     await adminAuth.setCustomUserClaims(ownerUid, {
       role: "owner",
-      shopId: shopId(),
+      shopId: sid,
     });
 
     const userRef = adminDb.collection("users").doc(ownerUid);
@@ -76,7 +75,7 @@ router.post("/bootstrap-owner", async (req, res) => {
         email: authUser.email || decoded.email || "",
         displayName: authUser.displayName || "Shop Owner",
         role: "owner",
-        shopId: shopId(),
+        shopId: sid,
         active: true,
         mustChangePassword: false,
         permissions: {},
@@ -87,7 +86,7 @@ router.post("/bootstrap-owner", async (req, res) => {
       await userRef.set(
         {
           role: "owner",
-          shopId: shopId(),
+          shopId: sid,
           active: true,
           mustChangePassword: false,
           email: authUser.email || existing.data()?.email || "",
@@ -105,7 +104,7 @@ router.post("/bootstrap-owner", async (req, res) => {
       success: true,
       message:
         "Owner claims and profile are ready. Sign out and sign in once so the new token includes claims.",
-      claims: { role: "owner", shopId: shopId() },
+      claims: { role: "owner", shopId: sid },
     });
   } catch (error) {
     console.error("Owner bootstrap failed:", error);
