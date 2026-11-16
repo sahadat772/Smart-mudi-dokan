@@ -6,10 +6,9 @@ import {
   requirePermission,
   type AuthenticatedRequest,
 } from "./authMiddleware.js";
+import { resolveShopId } from "./shopContext.js";
 
 const router = Router();
-
-const shopId = () => process.env.SHOP_ID || "default";
 
 const PAYMENT_METHODS = [
   "নগদ (Cash)",
@@ -82,16 +81,16 @@ function mapSale(id: string, data: Record<string, any>, includeCost: boolean) {
 
 router.use(verifyUser);
 
-/** Recent sales list. */
 router.get("/", requirePermission("pos", "view"), async (req, res) => {
   try {
     const authReq = req as AuthenticatedRequest;
     const includeCost = authReq.user?.role === "owner";
     const limit = Math.min(Number(req.query.limit) || 30, 100);
+    const sid = resolveShopId(authReq);
 
     const snapshot = await adminDb
       .collection("sales")
-      .where("shopId", "==", shopId())
+      .where("shopId", "==", sid)
       .orderBy("createdAt", "desc")
       .limit(limit)
       .get();
@@ -111,11 +110,11 @@ router.get("/", requirePermission("pos", "view"), async (req, res) => {
   }
 });
 
-/** Create sale + update stock and customer balance atomically. */
 router.post("/", requirePermission("pos", "manage"), async (req, res) => {
   try {
     const authReq = req as AuthenticatedRequest;
     const body = req.body || {};
+    const sid = resolveShopId(authReq);
 
     const rawItems = Array.isArray(body.items) ? body.items : [];
 
@@ -185,7 +184,6 @@ router.post("/", requirePermission("pos", "manage"), async (req, res) => {
       requested.push({ productId, quantity });
     }
 
-    // Merge duplicate product lines.
     const qtyByProduct = new Map<string, number>();
 
     for (const line of requested) {
@@ -209,7 +207,6 @@ router.post("/", requirePermission("pos", "manage"), async (req, res) => {
     const includeCost = authReq.user?.role === "owner";
 
     const result = await adminDb.runTransaction(async (tx) => {
-      // IMPORTANT: Complete every transaction read before any write.
       const productSnaps = await Promise.all(
         productRefs.map((ref) => tx.get(ref)),
       );
@@ -229,7 +226,7 @@ router.post("/", requirePermission("pos", "manage"), async (req, res) => {
 
         customerData = customerSnap.data() || {};
 
-        if (customerData.shopId !== shopId()) {
+        if (customerData.shopId !== sid) {
           throw Object.assign(new Error("Customer not found."), {
             status: 404,
           });
@@ -241,7 +238,6 @@ router.post("/", requirePermission("pos", "manage"), async (req, res) => {
           });
         }
 
-        // Use the saved customer information as the source of truth.
         customerName = customerData.name || requestedCustomerName;
         customerPhone = customerData.phone || requestedCustomerPhone;
       }
@@ -255,7 +251,6 @@ router.post("/", requirePermission("pos", "manage"), async (req, res) => {
       let subtotal = 0;
       let cogsTotal = 0;
 
-      // Validate all products and calculate totals before writing.
       for (let i = 0; i < productSnaps.length; i++) {
         const snap = productSnaps[i];
         const productId = productIds[i];
@@ -269,7 +264,7 @@ router.post("/", requirePermission("pos", "manage"), async (req, res) => {
 
         const data = snap.data() || {};
 
-        if (data.shopId !== shopId() || data.active === false) {
+        if (data.shopId !== sid || data.active === false) {
           throw Object.assign(new Error(`Product unavailable: ${productId}`), {
             status: 400,
           });
@@ -335,7 +330,7 @@ router.post("/", requirePermission("pos", "manage"), async (req, res) => {
       const paidAmount = Math.min(paidAmountInput, grandTotal);
       const dueAmount = grandTotal - paidAmount;
       const grossProfit = grandTotal - cogsTotal;
-      // Credit sales must be linked to a customer.
+
       if (dueAmount > 0 && !customerRef) {
         throw Object.assign(
           new Error("Select a customer before completing a credit sale."),
@@ -349,7 +344,7 @@ router.post("/", requirePermission("pos", "manage"), async (req, res) => {
         (authReq.user?.role === "owner" ? "Owner" : "Employee");
 
       const saleDoc = {
-        shopId: shopId(),
+        shopId: sid,
         invoiceNo: formatInvoiceNo(),
         customerName,
         customerPhone,
@@ -374,7 +369,6 @@ router.post("/", requirePermission("pos", "manage"), async (req, res) => {
         createdAt: FieldValue.serverTimestamp(),
       };
 
-      // All writes happen only after all reads and validations.
       for (const update of stockUpdates) {
         tx.update(update.ref, {
           stockQuantity: update.stockQuantity,
@@ -384,7 +378,6 @@ router.post("/", requirePermission("pos", "manage"), async (req, res) => {
 
       tx.set(saleRef, saleDoc);
 
-      // Keep customer purchase, paid and due balances synchronized.
       if (customerRef && customerData) {
         const previousPurchased = Number(customerData.totalPurchased) || 0;
         const previousPaid = Number(customerData.totalPaid) || 0;
@@ -408,7 +401,6 @@ router.post("/", requirePermission("pos", "manage"), async (req, res) => {
       };
     });
 
-    // Re-read stocks for the response after transaction completion.
     const updatedProducts: {
       id: string;
       stockQuantity: number;
