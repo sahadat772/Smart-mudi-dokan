@@ -6,10 +6,9 @@ import {
   requirePermission,
   type AuthenticatedRequest,
 } from "./authMiddleware.js";
+import { resolveShopId } from "./shopContext.js";
 
 const router = Router();
-
-const shopId = () => process.env.SHOP_ID || "default";
 
 const PAYMENT_METHODS = [
   "নগদ (Cash)",
@@ -59,11 +58,12 @@ function mapCollection(id: string, data: Record<string, any>) {
 
 router.use(verifyUser);
 
-router.get("/", requirePermission("customers", "view"), async (_req, res) => {
+router.get("/", requirePermission("customers", "view"), async (req, res) => {
   try {
+    const sid = resolveShopId(req as AuthenticatedRequest);
     const snapshot = await adminDb
       .collection("customers")
-      .where("shopId", "==", shopId())
+      .where("shopId", "==", sid)
       .where("active", "==", true)
       .get();
 
@@ -87,10 +87,11 @@ router.get(
   async (req, res) => {
     try {
       const { id } = req.params;
+      const sid = resolveShopId(req as AuthenticatedRequest);
 
       const snapshot = await adminDb
         .collection("dueCollections")
-        .where("shopId", "==", shopId())
+        .where("shopId", "==", sid)
         .where("customerId", "==", id)
         .orderBy("createdAt", "desc")
         .limit(50)
@@ -115,6 +116,7 @@ router.get(
 router.post("/", requirePermission("customers", "manage"), async (req, res) => {
   try {
     const body = req.body || {};
+    const sid = resolveShopId(req as AuthenticatedRequest);
     const name = typeof body.name === "string" ? body.name.trim() : "";
     const phone = typeof body.phone === "string" ? body.phone.trim() : "";
     const address =
@@ -144,7 +146,7 @@ router.post("/", requirePermission("customers", "manage"), async (req, res) => {
 
     const docRef = adminDb.collection("customers").doc();
     const payload = {
-      shopId: shopId(),
+      shopId: sid,
       name,
       phone,
       address: address || null,
@@ -176,14 +178,14 @@ router.post("/", requirePermission("customers", "manage"), async (req, res) => {
   }
 });
 
-/** Collect due — not counted as new sales revenue. */
 router.post(
   "/:id/collect-due",
   requirePermission("customers", "manage"),
   async (req, res) => {
     try {
-      const authReq = req as AuthenticatedRequest;
       const { id } = req.params;
+      const authReq = req as AuthenticatedRequest;
+      const sid = resolveShopId(authReq);
       const body = req.body || {};
       const amount = Number(body.amount);
       const paymentMethod = body.paymentMethod;
@@ -210,65 +212,57 @@ router.post(
       const result = await adminDb.runTransaction(async (tx) => {
         const snap = await tx.get(customerRef);
 
-        if (!snap.exists || snap.data()?.shopId !== shopId()) {
+        if (!snap.exists || snap.data()?.shopId !== sid) {
           throw Object.assign(new Error("Customer not found."), { status: 404 });
         }
 
-        const data = snap.data() || {};
-        if (data.active === false) {
+        if (snap.data()?.active === false) {
           throw Object.assign(new Error("Customer is inactive."), {
             status: 400,
           });
         }
 
+        const data = snap.data() || {};
         const previousDue = Number(data.currentDue) || 0;
-        if (amount > previousDue) {
+        const previousPaid = Number(data.totalPaid) || 0;
+
+        if (amount > previousDue + 1e-9) {
           throw Object.assign(
-            new Error(`Collection exceeds current due (৳${previousDue}).`),
+            new Error(`Collection exceeds due. Due: ${previousDue}`),
             { status: 400 },
           );
         }
 
         const remainingDue = previousDue - amount;
-        const totalPaid = (Number(data.totalPaid) || 0) + amount;
-
-        tx.update(customerRef, {
-          currentDue: remainingDue,
-          totalPaid,
-          updatedAt: FieldValue.serverTimestamp(),
-          lastTransactionAt: FieldValue.serverTimestamp(),
-        });
-
         const collectedBy =
           authReq.user?.displayName ||
           authReq.user?.email ||
           (authReq.user?.role === "owner" ? "Owner" : "Employee");
 
+        tx.update(customerRef, {
+          currentDue: remainingDue,
+          totalPaid: previousPaid + amount,
+          updatedAt: FieldValue.serverTimestamp(),
+          lastTransactionAt: FieldValue.serverTimestamp(),
+        });
+
         const collectionDoc = {
-          shopId: shopId(),
+          shopId: sid,
           customerId: id,
           customerName: data.name || "",
           amount,
           paymentMethod,
           note: note || null,
-          collectedBy,
-          collectedByUid: authReq.user?.uid,
           previousDue,
           remainingDue,
+          collectedBy,
+          collectedByUid: authReq.user?.uid,
           createdAt: FieldValue.serverTimestamp(),
         };
 
         tx.set(collectionRef, collectionDoc);
 
-        return {
-          collectionDoc,
-          customer: {
-            ...data,
-            currentDue: remainingDue,
-            totalPaid,
-            lastTransactionAt: new Date(),
-          },
-        };
+        return { collectionDoc, remainingDue };
       });
 
       return res.status(201).json({
@@ -278,7 +272,7 @@ router.post(
           ...result.collectionDoc,
           createdAt: new Date(),
         }),
-        customer: mapCustomer(id, result.customer),
+        remainingDue: result.remainingDue,
       });
     } catch (error: any) {
       console.error("Collect due failed:", error);
