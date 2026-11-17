@@ -285,6 +285,9 @@ export default function App() {
   const lowStockCount = products.filter(
     (p) => p.stockQuantity <= p.lowStockThreshold,
   ).length;
+  const dueCustomerCount = customers.filter(
+    (customer) => Number(customer.currentDue) > 0,
+  ).length;
 
   const handleCompleteSale = (
     newSale: Sale,
@@ -497,6 +500,8 @@ export default function App() {
             onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
             lowStockCount={lowStockCount}
             onNavigateToLowStock={() => setCurrentPage("products")}
+            dueCustomerCount={dueCustomerCount}
+            onNavigateToDues={() => setCurrentPage("customers")}
             shopName={shopSettings.shopName}
           />
           <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
