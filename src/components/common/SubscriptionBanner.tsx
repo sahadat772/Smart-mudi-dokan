@@ -126,6 +126,7 @@ export const SubscriptionBanner: React.FC = () => {
 
   return (
     <div
+      id="subscription-banner"
       role="status"
       className={`mb-4 rounded-xl border p-3 text-xs ${
         inactive || expired
