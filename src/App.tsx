@@ -20,6 +20,7 @@ import { Sidebar, NavPageId } from "./components/layout/Sidebar";
 import { Topbar } from "./components/layout/Topbar";
 import { MobileNav } from "./components/layout/MobileNav";
 import { DemoBanner } from "./components/common/DemoBanner";
+import { AssistantChat } from "./components/common/AssistantChat";
 import { ReceiptModal } from "./components/pos/ReceiptModal";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
@@ -663,6 +664,7 @@ export default function App() {
         sale={receiptSale}
         shopSettings={shopSettings}
       />
+      <AssistantChat />
     </div>
   );
 }
