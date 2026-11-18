@@ -11,6 +11,8 @@ interface TopbarProps {
   onNavigateToLowStock: () => void;
   dueCustomerCount: number;
   onNavigateToDues: () => void;
+  hasSubscriptionAlert: boolean;
+  onNavigateToSubscription: () => void;
   shopName: string;
 }
 
@@ -23,10 +25,13 @@ export const Topbar: React.FC<TopbarProps> = ({
   onNavigateToLowStock,
   dueCustomerCount,
   onNavigateToDues,
+  hasSubscriptionAlert,
+  onNavigateToSubscription,
   shopName,
 }) => {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const notificationCount = lowStockCount + dueCustomerCount;
+  const notificationCount =
+    lowStockCount + dueCustomerCount + Number(hasSubscriptionAlert);
   const label = displayName || (currentRole === "owner" ? "দোকান মালিক" : "কর্মচারী");
   const initial = label.trim().slice(0, 1) || "ম";
 
@@ -106,6 +111,19 @@ export const Topbar: React.FC<TopbarProps> = ({
                     >
                       <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-rose-100 font-bold text-rose-700">৳</span>
                       <span><strong>{dueCustomerCount}</strong>জন গ্রাহকের বকেয়া আছে</span>
+                    </button>
+                  )}
+                  {hasSubscriptionAlert && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNotificationsOpen(false);
+                        onNavigateToSubscription();
+                      }}
+                      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs text-rose-900 hover:bg-rose-50"
+                    >
+                      <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600" />
+                      <span>সাবস্ক্রিপশনের মেয়াদ শেষ হচ্ছে বা নিষ্ক্রিয়</span>
                     </button>
                   )}
                 </div>
