@@ -87,6 +87,12 @@ export default function App() {
   const [cashSession, setCashSession] = useState<CashSession>(emptyCash);
   const [shopSettings, setShopSettings] =
     useState<ShopSettings>(defaultShopSettings);
+  const [subscriptionNotice, setSubscriptionNotice] = useState<{
+    plan: string;
+    status: string;
+    trialEndsAt?: string | null;
+    subscriptionEndsAt?: string | null;
+  } | null>(null);
   const [receiptSale, setReceiptSale] = useState<Sale | null>(null);
   const [isReceiptOpen, setIsReceiptOpen] = useState(false);
 
@@ -106,6 +112,7 @@ export default function App() {
     setExpenses([]);
     setCashSession(emptyCash);
     setShopSettings(defaultShopSettings);
+    setSubscriptionNotice(null);
     setProductsError(null);
   }, []);
 
@@ -247,6 +254,12 @@ export default function App() {
 
   useEffect(() => {
     if (!authUser || !currentRole || mustChangePassword) return;
+    void apiFetch<{ shop: NonNullable<typeof subscriptionNotice> }>("/api/shops/me")
+      .then((data) => setSubscriptionNotice(data.shop))
+      .catch((error) => {
+        console.error("Failed to load subscription notice:", error);
+        setSubscriptionNotice(null);
+      });
     void loadProducts();
     void loadSales();
     void loadCustomers();
@@ -290,6 +303,18 @@ export default function App() {
   const dueCustomerCount = customers.filter(
     (customer) => Number(customer.currentDue) > 0,
   ).length;
+  const subscriptionEnd =
+    subscriptionNotice?.plan === "trial"
+      ? subscriptionNotice.trialEndsAt
+      : subscriptionNotice?.subscriptionEndsAt;
+  const subscriptionDaysLeft = subscriptionEnd
+    ? Math.ceil((Date.parse(subscriptionEnd) - Date.now()) / 86_400_000)
+    : null;
+  const hasSubscriptionAlert = Boolean(
+    subscriptionNotice &&
+      (subscriptionNotice.status !== "active" ||
+        (subscriptionDaysLeft !== null && subscriptionDaysLeft <= 7)),
+  );
 
   const handleCompleteSale = (
     newSale: Sale,
@@ -504,6 +529,12 @@ export default function App() {
             onNavigateToLowStock={() => setCurrentPage("products")}
             dueCustomerCount={dueCustomerCount}
             onNavigateToDues={() => setCurrentPage("customers")}
+            hasSubscriptionAlert={hasSubscriptionAlert}
+            onNavigateToSubscription={() =>
+              document
+                .getElementById("subscription-banner")
+                ?.scrollIntoView({ behavior: "smooth", block: "center" })
+            }
             shopName={shopSettings.shopName}
           />
           <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
