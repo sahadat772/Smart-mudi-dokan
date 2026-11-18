@@ -285,7 +285,12 @@ export default function App() {
 
   const canAccessPage = (page: NavPageId): boolean => {
     if (currentRole === "owner") return true;
-    if (page === "staff" || page === "settings" || page === "login")
+    if (
+      page === "staff" ||
+      page === "settings" ||
+      page === "subscription" ||
+      page === "login"
+    )
       return false;
     if (page === "change-password") return mustChangePassword;
     return userPermissions[page]?.view === true;
@@ -542,7 +547,15 @@ export default function App() {
           />
           <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
             <PaymentReturnNotice />
-            <SubscriptionBanner />
+            {currentPage === "subscription" && (
+              <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4">
+                <h2 className="text-base font-bold text-slate-900">সাবস্ক্রিপশন</h2>
+                <p className="mt-1 text-xs text-slate-600">
+                  বর্তমান plan দেখুন অথবা দোকানের subscription নবায়ন করুন।
+                </p>
+              </div>
+            )}
+            <SubscriptionBanner forceShow={currentPage === "subscription"} />
             {productsError && (
               <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900">
                 পণ্য লোড সমস্যা: {productsError}
