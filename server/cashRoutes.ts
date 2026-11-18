@@ -11,10 +11,9 @@ import {
   requirePermission,
   type AuthenticatedRequest,
 } from "./authMiddleware.js";
+import { resolveShopId } from "./shopContext.js";
 
 const router = Router();
-
-const shopId = () => process.env.SHOP_ID || "default";
 
 function mapSession(
   date: string,
@@ -61,12 +60,10 @@ function mapSession(
   };
 }
 
-async function computeCashTotals(dateStr: string) {
+async function computeCashTotals(dateStr: string, sid: string) {
   const { start, end } = getDhakaDayBounds(dateStr);
   const startTs = Timestamp.fromDate(start);
   const endTs = Timestamp.fromDate(end);
-  const sid = shopId();
-
   // All essential queries must succeed.
   // Never return partial or misleading cash totals.
   const [salesSnap, dueSnap, expSnap, paySnap, purchSnap] = await Promise.all([
@@ -166,10 +163,11 @@ async function computeCashTotals(dateStr: string) {
 router.use(verifyUser);
 
 /** Get today's cash session (create if missing) */
-router.get("/today", requirePermission("cash", "view"), async (_req, res) => {
+router.get("/today", requirePermission("cash", "view"), async (req, res) => {
   try {
+    const sid = resolveShopId(req as AuthenticatedRequest);
     const date = getTodayDhakaDateKey();
-    const docId = `${shopId()}_${date}`;
+    const docId = `${sid}_${date}`;
     const ref = adminDb.collection("cashSessions").doc(docId);
     const snap = await ref.get();
 
@@ -181,7 +179,7 @@ router.get("/today", requirePermission("cash", "view"), async (_req, res) => {
       const prevDate = addDateKeyDays(date, -1);
       const prevSnap = await adminDb
         .collection("cashSessions")
-        .doc(`${shopId()}_${prevDate}`)
+        .doc(`${sid}_${prevDate}`)
         .get();
 
       if (prevSnap.exists) {
@@ -194,7 +192,7 @@ router.get("/today", requirePermission("cash", "view"), async (_req, res) => {
       }
 
       stored = {
-        shopId: shopId(),
+        shopId: sid,
         date,
         openingCash,
         bKashBalance: Number(prevSnap.data()?.bKashBalance) || 0,
@@ -210,7 +208,7 @@ router.get("/today", requirePermission("cash", "view"), async (_req, res) => {
       stored = snap.data() || {};
     }
 
-    const computed = await computeCashTotals(date);
+    const computed = await computeCashTotals(date, sid);
     return res.json({
       success: true,
       session: mapSession(date, stored, computed),
@@ -230,8 +228,9 @@ router.patch(
   requirePermission("cash", "manage"),
   async (req, res) => {
     try {
+      const sid = resolveShopId(req as AuthenticatedRequest);
       const date = getTodayDhakaDateKey();
-      const docId = `${shopId()}_${date}`;
+      const docId = `${sid}_${date}`;
       const ref = adminDb.collection("cashSessions").doc(docId);
       const snap = await ref.get();
 
@@ -244,7 +243,7 @@ router.patch(
 
       const body = req.body || {};
       const updates: Record<string, any> = {
-        shopId: shopId(),
+        shopId: sid,
         date,
         updatedAt: FieldValue.serverTimestamp(),
       };
@@ -292,7 +291,7 @@ router.patch(
       }
 
       const fresh = (await ref.get()).data() || {};
-      const computed = await computeCashTotals(date);
+      const computed = await computeCashTotals(date, sid);
 
       return res.json({
         success: true,
@@ -316,8 +315,9 @@ router.post(
   async (req, res) => {
     try {
       const authReq = req as AuthenticatedRequest;
+      const sid = resolveShopId(authReq);
       const date = getTodayDhakaDateKey();
-      const docId = `${shopId()}_${date}`;
+      const docId = `${sid}_${date}`;
       const ref = adminDb.collection("cashSessions").doc(docId);
       const snap = await ref.get();
 
@@ -336,7 +336,7 @@ router.post(
         });
       }
 
-      const computed = await computeCashTotals(date);
+      const computed = await computeCashTotals(date, sid);
       const stored = snap.exists
         ? snap.data() || {}
         : { openingCash: 0, bKashBalance: 0, nagadBalance: 0, bankBalance: 0 };
@@ -358,7 +358,7 @@ router.post(
 
       await ref.set(
         {
-          shopId: shopId(),
+          shopId: sid,
           date,
           openingCash,
           bKashBalance: Number(stored.bKashBalance) || 0,

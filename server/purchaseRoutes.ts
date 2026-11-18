@@ -6,10 +6,9 @@ import {
   requirePermission,
   type AuthenticatedRequest,
 } from "./authMiddleware.js";
+import { resolveShopId } from "./shopContext.js";
 
 const router = Router();
-
-const shopId = () => process.env.SHOP_ID || "default";
 
 const PAYMENT_METHODS = [
   "নগদ (Cash)",
@@ -66,11 +65,12 @@ router.use(verifyUser);
 router.get(
   "/suppliers",
   requirePermission("purchases", "view"),
-  async (_req, res) => {
+  async (req, res) => {
     try {
+      const sid = resolveShopId(req as AuthenticatedRequest);
       const snapshot = await adminDb
         .collection("suppliers")
-        .where("shopId", "==", shopId())
+        .where("shopId", "==", sid)
         .where("active", "==", true)
         .get();
 
@@ -95,6 +95,7 @@ router.post(
   requirePermission("purchases", "manage"),
   async (req, res) => {
     try {
+      const sid = resolveShopId(req as AuthenticatedRequest);
       const body = req.body || {};
       const companyName =
         typeof body.companyName === "string" ? body.companyName.trim() : "";
@@ -122,7 +123,7 @@ router.post(
 
       const docRef = adminDb.collection("suppliers").doc();
       const payload = {
-        shopId: shopId(),
+        shopId: sid,
         companyName,
         contactPerson: contactPerson || null,
         phone,
@@ -163,6 +164,7 @@ router.post(
   async (req, res) => {
     try {
       const authReq = req as AuthenticatedRequest;
+      const sid = resolveShopId(authReq);
       const { id } = req.params;
       const amount = Number(req.body?.amount);
       const paymentMethod = req.body?.paymentMethod;
@@ -190,7 +192,7 @@ router.post(
 
       const result = await adminDb.runTransaction(async (tx) => {
         const snap = await tx.get(supplierRef);
-        if (!snap.exists || snap.data()?.shopId !== shopId()) {
+        if (!snap.exists || snap.data()?.shopId !== sid) {
           throw Object.assign(new Error("Supplier not found."), { status: 404 });
         }
 
@@ -219,7 +221,7 @@ router.post(
           (authReq.user?.role === "owner" ? "Owner" : "Employee");
 
         const paymentDoc = {
-          shopId: shopId(),
+          shopId: sid,
           supplierId: id,
           supplierName: data.companyName || "",
           amount,
@@ -267,20 +269,21 @@ router.post(
 /** List purchases */
 router.get("/", requirePermission("purchases", "view"), async (req, res) => {
   try {
+    const sid = resolveShopId(req as AuthenticatedRequest);
     const limit = Math.min(Number(req.query.limit) || 30, 100);
     const supplierId =
       typeof req.query.supplierId === "string" ? req.query.supplierId : null;
 
     let query = adminDb
       .collection("purchases")
-      .where("shopId", "==", shopId())
+      .where("shopId", "==", sid)
       .orderBy("createdAt", "desc")
       .limit(limit);
 
     if (supplierId) {
       query = adminDb
         .collection("purchases")
-        .where("shopId", "==", shopId())
+        .where("shopId", "==", sid)
         .where("supplierId", "==", supplierId)
         .orderBy("createdAt", "desc")
         .limit(limit);
@@ -304,6 +307,7 @@ router.get("/", requirePermission("purchases", "view"), async (req, res) => {
 router.post("/", requirePermission("purchases", "manage"), async (req, res) => {
   try {
     const authReq = req as AuthenticatedRequest;
+    const sid = resolveShopId(authReq);
     const body = req.body || {};
 
     const invoiceNo =
@@ -378,11 +382,11 @@ router.post("/", requirePermission("purchases", "manage"), async (req, res) => {
         tx.get(productRef),
       ]);
 
-      if (!supplierSnap.exists || supplierSnap.data()?.shopId !== shopId()) {
+      if (!supplierSnap.exists || supplierSnap.data()?.shopId !== sid) {
         throw Object.assign(new Error("Supplier not found."), { status: 404 });
       }
 
-      if (!productSnap.exists || productSnap.data()?.shopId !== shopId()) {
+      if (!productSnap.exists || productSnap.data()?.shopId !== sid) {
         throw Object.assign(new Error("Product not found."), { status: 404 });
       }
 
@@ -418,7 +422,7 @@ router.post("/", requirePermission("purchases", "manage"), async (req, res) => {
         (authReq.user?.role === "owner" ? "Owner" : "Employee");
 
       const purchaseDoc = {
-        shopId: shopId(),
+        shopId: sid,
         invoiceNo,
         supplierId,
         supplierName: supplier.companyName || "",

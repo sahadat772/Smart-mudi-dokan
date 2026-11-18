@@ -6,6 +6,7 @@ import {
   verifyUser,
   type AuthenticatedRequest,
 } from "./authMiddleware.js";
+import { resolveShopId } from "./shopContext.js";
 
 const router = Router();
 
@@ -121,7 +122,15 @@ function validatePermissions(value: unknown): PermissionSet | null {
   return result;
 }
 
-const shopId = () => process.env.SHOP_ID || "default";
+function storedShopId(data: Record<string, any>) {
+  if (typeof data.shopId === "string" && data.shopId.trim()) {
+    return data.shopId.trim();
+  }
+  if (process.env.LEGACY_SINGLE_TENANT_MODE === "true") {
+    return process.env.SHOP_ID?.trim() || "";
+  }
+  return "";
+}
 
 function formatLastLogin(value: unknown): string {
   if (
@@ -136,12 +145,16 @@ function formatLastLogin(value: unknown): string {
 }
 
 /** List all employees for this shop (Admin SDK — not client Firestore). */
-router.get("/", verifyOwner, async (_req, res) => {
+router.get("/", verifyOwner, async (req, res) => {
   try {
-    const snapshot = await adminDb
+    const sid = resolveShopId(req as AuthenticatedRequest);
+    const employeesQuery = adminDb
       .collection("users")
-      .where("role", "==", "employee")
-      .get();
+      .where("role", "==", "employee");
+    const snapshot =
+      process.env.LEGACY_SINGLE_TENANT_MODE === "true"
+        ? await employeesQuery.get()
+        : await employeesQuery.where("shopId", "==", sid).get();
 
     const employees = snapshot.docs
       .map((docSnap) => {
@@ -153,12 +166,12 @@ router.get("/", verifyOwner, async (_req, res) => {
           jobRole: data.jobRole || "custom",
           active: data.active === true,
           mustChangePassword: data.mustChangePassword === true,
-          shopId: data.shopId || shopId(),
+          shopId: storedShopId(data),
           permissions: data.permissions || emptyPermissions(),
           lastLoginAt: formatLastLogin(data.lastLoginAt),
         };
       })
-      .filter((emp) => emp.shopId === shopId());
+      .filter((emp) => emp.shopId === sid);
 
     return res.json({
       success: true,
@@ -178,6 +191,7 @@ router.post("/", verifyOwner, async (req, res) => {
   let createdUid: string | null = null;
 
   try {
+    const sid = resolveShopId(req as AuthenticatedRequest);
     const { name, email, password, role, permissions } = req.body;
 
     if (
@@ -267,7 +281,7 @@ router.post("/", verifyOwner, async (req, res) => {
 
     await adminAuth.setCustomUserClaims(employee.uid, {
       role: "employee",
-      shopId: shopId(),
+      shopId: sid,
     });
 
     await adminDb.collection("users").doc(employee.uid).set({
@@ -276,7 +290,7 @@ router.post("/", verifyOwner, async (req, res) => {
       displayName,
       role: "employee",
       jobRole: role,
-      shopId: shopId(),
+      shopId: sid,
       active: true,
       mustChangePassword: true,
       permissions: finalPermissions,
@@ -333,6 +347,8 @@ router.post("/", verifyOwner, async (req, res) => {
 /** Activate or deactivate an employee. Deactivate disables Auth + revokes tokens. */
 router.patch("/:uid/status", verifyOwner, async (req, res) => {
   try {
+    const authReq = req as AuthenticatedRequest;
+    const sid = resolveShopId(authReq);
     const { uid } = req.params;
     const { active } = req.body;
 
@@ -353,7 +369,12 @@ router.patch("/:uid/status", verifyOwner, async (req, res) => {
     const userRef = adminDb.collection("users").doc(uid);
     const userSnap = await userRef.get();
 
-    if (!userSnap.exists || userSnap.data()?.role !== "employee") {
+    const employeeData = userSnap.data() || {};
+    if (
+      !userSnap.exists ||
+      employeeData.role !== "employee" ||
+      storedShopId(employeeData) !== sid
+    ) {
       return res.status(404).json({
         success: false,
         message: "Employee not found.",
@@ -367,6 +388,7 @@ router.patch("/:uid/status", verifyOwner, async (req, res) => {
     }
 
     await userRef.update({
+      shopId: sid,
       active,
       statusUpdatedAt: FieldValue.serverTimestamp(),
     });
@@ -391,6 +413,7 @@ router.patch("/:uid/status", verifyOwner, async (req, res) => {
 /** Update employee permissions. */
 router.patch("/:uid/permissions", verifyOwner, async (req, res) => {
   try {
+    const sid = resolveShopId(req as AuthenticatedRequest);
     const { uid } = req.params;
     const { permissions, jobRole } = req.body;
 
@@ -406,7 +429,12 @@ router.patch("/:uid/permissions", verifyOwner, async (req, res) => {
     const userRef = adminDb.collection("users").doc(uid);
     const userSnap = await userRef.get();
 
-    if (!userSnap.exists || userSnap.data()?.role !== "employee") {
+    const employeeData = userSnap.data() || {};
+    if (
+      !userSnap.exists ||
+      employeeData.role !== "employee" ||
+      storedShopId(employeeData) !== sid
+    ) {
       return res.status(404).json({
         success: false,
         message: "Employee not found.",
@@ -414,6 +442,7 @@ router.patch("/:uid/permissions", verifyOwner, async (req, res) => {
     }
 
     const update: Record<string, unknown> = {
+      shopId: sid,
       permissions: validated,
       permissionsUpdatedAt: FieldValue.serverTimestamp(),
     };

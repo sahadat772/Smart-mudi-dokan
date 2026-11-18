@@ -2,16 +2,14 @@ import type { AuthenticatedRequest } from "./authMiddleware.js";
 
 /**
  * Resolve the active shop for an authenticated request.
- * Prefer JWT / user profile shopId; fall back to SHOP_ID for legacy single-tenant.
+ * Resolve a shop only from the authenticated principal. Legacy records and users
+ * must be migrated or explicitly enabled with LEGACY_SINGLE_TENANT_MODE.
  */
 export function resolveShopId(req: AuthenticatedRequest): string {
   const fromUser = req.user?.shopId?.trim();
   if (fromUser) return fromUser;
 
-  const fromEnv = process.env.SHOP_ID?.trim();
-  if (fromEnv) return fromEnv;
-
-  return "default";
+  throw new Error("Authenticated user is not linked to a shop.");
 }
 
 export type ShopPlan = "trial" | "basic" | "pro";

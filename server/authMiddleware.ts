@@ -59,7 +59,10 @@ async function loadAuthUser(uid: string, email?: string): Promise<AuthUser | nul
     uid,
     email: email || data.email,
     role,
-    shopId: data.shopId || process.env.SHOP_ID || "default",
+    shopId:
+      typeof data.shopId === "string" && data.shopId.trim()
+        ? data.shopId.trim()
+        : undefined,
     active: true,
     mustChangePassword: data.mustChangePassword === true,
     permissions: (data.permissions as Partial<PermissionSet>) || {},
@@ -107,8 +110,21 @@ export async function verifyUser(
     if (claimRole === "owner" || claimRole === "employee") {
       authUser.role = claimRole;
     }
-    if (typeof decodedToken.shopId === "string" && decodedToken.shopId) {
-      authUser.shopId = decodedToken.shopId;
+    if (
+      typeof decodedToken.shopId === "string" &&
+      decodedToken.shopId.trim()
+    ) {
+      authUser.shopId = decodedToken.shopId.trim();
+    }
+
+    // Keep legacy single-tenant installs working only when an operator opts in.
+    // New/multi-shop installs must bind every account to its own shop profile/claim.
+    if (
+      !authUser.shopId &&
+      process.env.LEGACY_SINGLE_TENANT_MODE === "true" &&
+      process.env.SHOP_ID?.trim()
+    ) {
+      authUser.shopId = process.env.SHOP_ID.trim();
     }
 
     // Multi-tenant: every user must be bound to a shop.
