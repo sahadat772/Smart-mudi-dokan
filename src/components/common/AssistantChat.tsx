@@ -1,5 +1,15 @@
 import React, { FormEvent, useEffect, useRef, useState } from "react";
-import { Bot, LoaderCircle, MessageCircle, Mic, MicOff, Send, X } from "lucide-react";
+import {
+  Bot,
+  LoaderCircle,
+  MessageCircle,
+  Mic,
+  MicOff,
+  Send,
+  Square,
+  Volume2,
+  X,
+} from "lucide-react";
 import { apiFetch } from "../../api/client";
 
 interface ChatMessage {
@@ -47,7 +57,33 @@ export const AssistantChat: React.FC = () => {
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState("");
   const [isListening, setIsListening] = useState(false);
+  const [speakingIndex, setSpeakingIndex] = useState<number | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+
+  const stopSpeech = () => {
+    if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+    setSpeakingIndex(null);
+  };
+
+  const toggleSpeech = (index: number, text: string) => {
+    if (!("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) {
+      setError("এই ব্রাউজারে উত্তর পড়ে শোনানোর সুবিধা নেই।");
+      return;
+    }
+    if (speakingIndex === index) {
+      stopSpeech();
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "bn-BD";
+    utterance.onend = () => setSpeakingIndex(null);
+    utterance.onerror = () => setSpeakingIndex(null);
+    setError("");
+    setSpeakingIndex(index);
+    window.speechSynthesis.speak(utterance);
+  };
 
   const sendMessage = async (rawText: string) => {
     const text = rawText.trim();
@@ -57,6 +93,7 @@ export const AssistantChat: React.FC = () => {
       recognitionRef.current?.stop();
       setIsListening(false);
     }
+    stopSpeech();
 
     const previous = messages.slice(-8);
     setMessages((current) => [...current, { role: "user", text }]);
@@ -147,7 +184,13 @@ export const AssistantChat: React.FC = () => {
     }
   };
 
-  useEffect(() => () => recognitionRef.current?.abort(), []);
+  useEffect(
+    () => () => {
+      recognitionRef.current?.abort();
+      if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+    },
+    [],
+  );
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -175,7 +218,10 @@ export const AssistantChat: React.FC = () => {
             </div>
             <button
               type="button"
-              onClick={() => setIsOpen(false)}
+              onClick={() => {
+                stopSpeech();
+                setIsOpen(false);
+              }}
               aria-label="সহকারী বন্ধ করুন"
               className="rounded-lg p-2 text-slate-300 hover:bg-white/10 hover:text-white"
             >
@@ -190,13 +236,33 @@ export const AssistantChat: React.FC = () => {
             {messages.map((message, index) => (
               <div
                 key={index}
-                className={`max-w-[88%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-xs leading-relaxed ${
-                  message.role === "user"
-                    ? "ml-auto rounded-br-sm bg-emerald-600 text-white"
-                    : "mr-auto rounded-bl-sm border border-slate-200 bg-white text-slate-800"
-                }`}
+                className={`max-w-[88%] ${message.role === "user" ? "ml-auto" : "mr-auto"}`}
               >
-                {message.text}
+                <div
+                  className={`whitespace-pre-wrap rounded-2xl px-3 py-2 text-xs leading-relaxed ${
+                    message.role === "user"
+                      ? "rounded-br-sm bg-emerald-600 text-white"
+                      : "rounded-bl-sm border border-slate-200 bg-white text-slate-800"
+                  }`}
+                >
+                  {message.text}
+                </div>
+                {message.role === "assistant" && (
+                  <button
+                    type="button"
+                    onClick={() => toggleSpeech(index, message.text)}
+                    aria-label={speakingIndex === index ? "উত্তর শোনা বন্ধ করুন" : "উত্তর শুনুন"}
+                    aria-pressed={speakingIndex === index}
+                    className="mt-1 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] text-slate-500 hover:bg-slate-200 hover:text-slate-800"
+                  >
+                    {speakingIndex === index ? (
+                      <Square className="h-3 w-3 fill-current" />
+                    ) : (
+                      <Volume2 className="h-3 w-3" />
+                    )}
+                    {speakingIndex === index ? "বন্ধ করুন" : "শুনুন"}
+                  </button>
+                )}
               </div>
             ))}
             {messages.length === 1 && !isSending && (
@@ -266,7 +332,10 @@ export const AssistantChat: React.FC = () => {
 
       <button
         type="button"
-        onClick={() => setIsOpen((open) => !open)}
+        onClick={() => {
+          if (isOpen) stopSpeech();
+          setIsOpen((open) => !open);
+        }}
         aria-label={isOpen ? "AI সহকারী বন্ধ করুন" : "AI সহকারী খুলুন"}
         aria-expanded={isOpen}
         className="ml-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-600 text-white shadow-lg ring-4 ring-white hover:bg-emerald-700"
