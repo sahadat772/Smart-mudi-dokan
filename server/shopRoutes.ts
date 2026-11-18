@@ -206,6 +206,10 @@ router.get("/me", verifyUser, async (req: AuthenticatedRequest, res) => {
           data.trialEndsAt?.toDate?.()?.toISOString?.() ||
           data.trialEndsAt ||
           null,
+        subscriptionEndsAt:
+          data.subscriptionEndsAt?.toDate?.()?.toISOString?.() ||
+          data.subscriptionEndsAt ||
+          null,
         ownerUid: data.ownerUid,
       },
     });
