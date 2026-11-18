@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { AlertTriangle, CalendarClock } from "lucide-react";
+import { AlertTriangle, CalendarClock, CheckCircle2, X } from "lucide-react";
 import { apiFetch } from "../../api/client";
 
 type Plan = "basic" | "pro";
@@ -24,6 +24,70 @@ interface PlanOption {
 
 const inputClass =
   "w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100";
+
+type PaymentReturnStatus = "success" | "failed" | "cancelled" | "review";
+
+const paymentMessages: Record<PaymentReturnStatus, string> = {
+  success: "পেমেন্ট যাচাই হয়েছে। আপনার plan নবায়নের তথ্য নিচে দেখুন।",
+  failed: "পেমেন্ট সম্পন্ন হয়নি। আবার চেষ্টা করুন বা অ্যাডমিনের সাথে যোগাযোগ করুন।",
+  cancelled: "পেমেন্ট বাতিল করা হয়েছে। চাইলে পরে আবার চেষ্টা করতে পারেন।",
+  review: "পেমেন্ট পাওয়া গেছে; নিরাপত্তা যাচাই শেষে plan সক্রিয় হবে।",
+};
+
+export const PaymentReturnNotice: React.FC = () => {
+  const [status, setStatus] = useState<PaymentReturnStatus | null>(null);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const value = url.searchParams.get("subscription");
+    if (
+      value === "success" ||
+      value === "failed" ||
+      value === "cancelled" ||
+      value === "review"
+    ) {
+      setStatus(value);
+      url.searchParams.delete("subscription");
+      window.history.replaceState(
+        window.history.state,
+        "",
+        `${url.pathname}${url.search}${url.hash}`,
+      );
+    }
+  }, []);
+
+  if (!status) return null;
+  const succeeded = status === "success";
+  const review = status === "review";
+
+  return (
+    <div
+      role="status"
+      className={`mb-4 flex items-start gap-2 rounded-xl border p-3 text-xs ${
+        succeeded
+          ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+          : review
+            ? "border-amber-200 bg-amber-50 text-amber-950"
+            : "border-rose-200 bg-rose-50 text-rose-900"
+      }`}
+    >
+      {succeeded ? (
+        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+      ) : (
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+      )}
+      <p className="flex-1">{paymentMessages[status]}</p>
+      <button
+        type="button"
+        onClick={() => setStatus(null)}
+        aria-label="পেমেন্ট বার্তা বন্ধ করুন"
+        className="rounded-md p-0.5 opacity-70 hover:bg-black/5 hover:opacity-100"
+      >
+        <X className="h-4 w-4" />
+      </button>
+    </div>
+  );
+};
 
 export const SubscriptionBanner: React.FC = () => {
   const [subscription, setSubscription] = useState<ShopSubscription | null>(null);
