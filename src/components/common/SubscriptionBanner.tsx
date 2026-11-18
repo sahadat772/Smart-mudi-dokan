@@ -89,7 +89,9 @@ export const PaymentReturnNotice: React.FC = () => {
   );
 };
 
-export const SubscriptionBanner: React.FC = () => {
+export const SubscriptionBanner: React.FC<{ forceShow?: boolean }> = ({
+  forceShow = false,
+}) => {
   const [subscription, setSubscription] = useState<ShopSubscription | null>(null);
   const [plans, setPlans] = useState<PlanOption[]>([]);
   const [contact, setContact] = useState({
@@ -163,7 +165,13 @@ export const SubscriptionBanner: React.FC = () => {
     }
   };
 
-  if (!subscription) return null;
+  if (!subscription) {
+    return forceShow ? (
+      <div className="rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-500">
+        সাবস্ক্রিপশনের তথ্য লোড হচ্ছে...
+      </div>
+    ) : null;
+  }
   const isTrial = subscription.plan === "trial";
   const endDateValue = isTrial
     ? subscription.trialEndsAt
@@ -179,6 +187,7 @@ export const SubscriptionBanner: React.FC = () => {
   const inactive = subscription.status !== "active";
 
   if (
+    !forceShow &&
     !inactive &&
     !isTrial &&
     (!hasEndDate || (daysLeft !== null && daysLeft > 7))
@@ -214,12 +223,16 @@ export const SubscriptionBanner: React.FC = () => {
                   : "আপনার সাবস্ক্রিপশনের মেয়াদ শেষ হয়েছে"
                 : isTrial
                   ? `ট্রায়ালের আর ${daysLeft} দিন বাকি`
-                  : `সাবস্ক্রিপশনের আর ${daysLeft} দিন বাকি`}
+                  : hasEndDate
+                    ? `সাবস্ক্রিপশনের আর ${daysLeft} দিন বাকি`
+                    : `${subscription.plan === "pro" ? "Pro" : "Basic"} plan চালু আছে`}
           </p>
           <p className="mt-0.5 opacity-90">
             {inactive || expired
               ? "তথ্য দেখা যাবে; সেবা চালু রাখতে নিচে একটি plan নিন অথবা অ্যাডমিনের সাথে যোগাযোগ করুন।"
-              : "সেবা চালু রাখতে মেয়াদ শেষ হওয়ার আগে plan নবায়ন করুন।"}
+              : !hasEndDate
+                ? "এই plan-এর মেয়াদ নির্ধারিত নেই। plan পরিবর্তন বা payment জানতে নিচে দেখুন।"
+                : "সেবা চালু রাখতে মেয়াদ শেষ হওয়ার আগে plan নবায়ন করুন।"}
           </p>
         </div>
       </div>
