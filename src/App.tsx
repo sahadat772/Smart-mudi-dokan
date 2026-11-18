@@ -21,7 +21,10 @@ import { Topbar } from "./components/layout/Topbar";
 import { MobileNav } from "./components/layout/MobileNav";
 import { DemoBanner } from "./components/common/DemoBanner";
 import { AssistantChat } from "./components/common/AssistantChat";
-import { SubscriptionBanner } from "./components/common/SubscriptionBanner";
+import {
+  PaymentReturnNotice,
+  SubscriptionBanner,
+} from "./components/common/SubscriptionBanner";
 import { ReceiptModal } from "./components/pos/ReceiptModal";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
@@ -538,6 +541,7 @@ export default function App() {
             shopName={shopSettings.shopName}
           />
           <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
+            <PaymentReturnNotice />
             <SubscriptionBanner />
             {productsError && (
               <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900">
