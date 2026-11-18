@@ -14,6 +14,7 @@ import reportRoutes from "./reportRoutes.js";
 import settingsRoutes from "./settingsRoutes.js";
 import dashboardRoutes from "./dashboardRoutes.js";
 import shopRoutes from "./shopRoutes.js";
+import assistantRoutes from "./assistantRoutes.js";
 
 dotenv.config({ path: "server/.env" });
 
@@ -55,6 +56,7 @@ app.use(
 app.use(express.json());
 app.use("/api/auth", authRoutes);
 app.use("/api/shops", shopRoutes);
+app.use("/api/assistant", assistantRoutes);
 app.use("/api/staff", staffRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/sales", saleRoutes);
