@@ -1,11 +1,33 @@
-import React, { FormEvent, useState } from "react";
-import { Bot, LoaderCircle, MessageCircle, Send, X } from "lucide-react";
+import React, { FormEvent, useEffect, useRef, useState } from "react";
+import { Bot, LoaderCircle, MessageCircle, Mic, MicOff, Send, X } from "lucide-react";
 import { apiFetch } from "../../api/client";
 
 interface ChatMessage {
   role: "user" | "assistant";
   text: string;
 }
+
+interface SpeechRecognitionEventLike {
+  resultIndex: number;
+  results: ArrayLike<{
+    isFinal: boolean;
+    0: { transcript: string };
+  }>;
+}
+
+interface SpeechRecognitionLike {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: { error: string }) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+}
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
 
 const welcomeMessage =
   "আসসালামু আলাইকুম! Smart Mudi Manager ব্যবহার করতে আমি ধাপে ধাপে সাহায্য করব। কী জানতে চান?";
@@ -24,10 +46,17 @@ export const AssistantChat: React.FC = () => {
   const [draft, setDraft] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState("");
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
 
   const sendMessage = async (rawText: string) => {
     const text = rawText.trim();
     if (!text || isSending) return;
+
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+    }
 
     const previous = messages.slice(-8);
     setMessages((current) => [...current, { role: "user", text }]);
@@ -60,6 +89,65 @@ export const AssistantChat: React.FC = () => {
       setIsSending(false);
     }
   };
+
+  const toggleVoiceInput = () => {
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+
+    const speechWindow = window as typeof window & {
+      SpeechRecognition?: SpeechRecognitionConstructor;
+      webkitSpeechRecognition?: SpeechRecognitionConstructor;
+    };
+    const SpeechRecognitionApi =
+      speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
+
+    if (!SpeechRecognitionApi) {
+      setError("এই ব্রাউজারে ভয়েস ইনপুট নেই। Chrome বা Edge-এ চেষ্টা করুন।");
+      return;
+    }
+
+    const recognition = new SpeechRecognitionApi();
+    recognition.lang = "bn-BD";
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.onresult = (event) => {
+      const transcripts: string[] = [];
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        const result = event.results[index];
+        if (result?.isFinal) transcripts.push(result[0]?.transcript || "");
+      }
+      const spokenText = transcripts.join(" ").trim();
+      if (spokenText) {
+        setDraft((current) =>
+          (current ? `${current} ${spokenText}` : spokenText).slice(0, 1000),
+        );
+      }
+    };
+    recognition.onerror = (event) => {
+      setIsListening(false);
+      setError(
+        event.error === "not-allowed"
+          ? "ভয়েস ইনপুটের জন্য মাইক্রোফোন অনুমতি দিন।"
+          : "কথা বোঝা যায়নি। আবার চেষ্টা করুন বা লিখে পাঠান।",
+      );
+    };
+    recognition.onend = () => setIsListening(false);
+    recognitionRef.current = recognition;
+    setError("");
+    setIsListening(true);
+
+    try {
+      recognition.start();
+    } catch {
+      setIsListening(false);
+      setError("মাইক্রোফোন চালু করা যায়নি। আবার চেষ্টা করুন।");
+    }
+  };
+
+  useEffect(() => () => recognitionRef.current?.abort(), []);
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -139,6 +227,20 @@ export const AssistantChat: React.FC = () => {
           </div>
 
           <form onSubmit={handleSubmit} className="flex items-center gap-2 border-t border-slate-200 bg-white p-3">
+            <button
+              type="button"
+              onClick={toggleVoiceInput}
+              aria-label={isListening ? "ভয়েস ইনপুট বন্ধ করুন" : "ভয়েসে প্রশ্ন বলুন"}
+              aria-pressed={isListening}
+              title={isListening ? "শোনা বন্ধ করুন" : "ভয়েসে প্রশ্ন বলুন"}
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${
+                isListening
+                  ? "border-rose-300 bg-rose-50 text-rose-700"
+                  : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+            </button>
             <input
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
