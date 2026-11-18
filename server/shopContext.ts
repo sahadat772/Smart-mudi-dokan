@@ -12,6 +12,22 @@ export function resolveShopId(req: AuthenticatedRequest): string {
   throw new Error("Authenticated user is not linked to a shop.");
 }
 
+/** True only for the explicitly configured legacy owner/shop pair. */
+export function isConfiguredLegacyShopOwner(
+  req: AuthenticatedRequest,
+  shopId: string,
+): boolean {
+  const ownerUid = process.env.OWNER_UID?.trim();
+  const configuredShopId = process.env.SHOP_ID?.trim();
+  return Boolean(
+    req.user?.role === "owner" &&
+      ownerUid &&
+      req.user.uid === ownerUid &&
+      configuredShopId &&
+      shopId === configuredShopId,
+  );
+}
+
 export type ShopPlan = "trial" | "basic" | "pro";
 
 export type ShopStatus = "active" | "suspended" | "cancelled";
