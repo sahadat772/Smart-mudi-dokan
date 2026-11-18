@@ -39,7 +39,12 @@ export function enforceActiveSubscription(
     path === "/assistant" ||
     path.startsWith("/assistant/") ||
     path === "/auth" ||
-    path.startsWith("/auth/");
+    path.startsWith("/auth/") ||
+    path === "/subscriptions/checkout" ||
+    path === "/subscriptions/sslcommerz/success" ||
+    path === "/subscriptions/sslcommerz/fail" ||
+    path === "/subscriptions/sslcommerz/cancel" ||
+    path === "/subscriptions/sslcommerz/ipn";
 
   if (!WRITE_METHODS.has(req.method) || exempt) return next();
 
@@ -56,20 +61,26 @@ export function enforceActiveSubscription(
       const status =
         typeof shop.status === "string" ? shop.status : "active";
       const trialEnd = toDate(shop.trialEndsAt);
+      const subscriptionEnd = toDate(shop.subscriptionEndsAt);
       const trialExpired =
         shop.plan === "trial" && (!trialEnd || trialEnd.getTime() <= Date.now());
+      const paidPlanExpired =
+        (shop.plan === "basic" || shop.plan === "pro") &&
+        subscriptionEnd !== null &&
+        subscriptionEnd.getTime() <= Date.now();
 
-      if (status !== "active" || trialExpired) {
+      if (status !== "active" || trialExpired || paidPlanExpired) {
         return res.status(402).json({
           success: false,
           code: "subscription_required",
-          message: trialExpired
-            ? "আপনার ট্রায়ালের মেয়াদ শেষ হয়েছে। নতুন পরিবর্তন করতে সাবস্ক্রিপশন চালু করুন।"
+          message: trialExpired || paidPlanExpired
+            ? "সাবস্ক্রিপশনের মেয়াদ শেষ হয়েছে। নতুন পরিবর্তন করতে plan নবায়ন করুন।"
             : "এই দোকানের সাবস্ক্রিপশন সক্রিয় নেই। সহায়তার জন্য অ্যাডমিনের সাথে যোগাযোগ করুন।",
           subscription: {
             plan: shop.plan || "trial",
             status,
             trialEndsAt: trialEnd?.toISOString() || null,
+            subscriptionEndsAt: subscriptionEnd?.toISOString() || null,
           },
         });
       }
