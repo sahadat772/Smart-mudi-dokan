@@ -117,14 +117,48 @@ export async function verifyUser(
       authUser.shopId = decodedToken.shopId.trim();
     }
 
-    // Keep legacy single-tenant installs working only when an operator opts in.
-    // New/multi-shop installs must bind every account to its own shop profile/claim.
+    // Recover a legacy owner binding from a shop record that already names this
+    // UID. This does not grant a shop to employees or trust a request body.
+    if (!authUser.shopId && authUser.role === "owner") {
+      const ownedShops = await adminDb
+        .collection("shops")
+        .where("ownerUid", "==", authUser.uid)
+        .limit(2)
+        .get();
+      if (ownedShops.size === 1) {
+        authUser.shopId = ownedShops.docs[0].id;
+        try {
+          await adminDb.collection("users").doc(authUser.uid).set(
+            { shopId: authUser.shopId },
+            { merge: true },
+          );
+        } catch (error) {
+          // The authenticated request can still proceed from the verified shop
+          // ownership record; a later request can retry the profile backfill.
+          console.error("Legacy owner shopId backfill failed:", error);
+        }
+      }
+    }
+
+    // A legacy deployment may not have a shops/{shopId} record yet. Only the
+    // explicitly configured owner UID can use this compatibility mapping.
+    const configuredShopId = process.env.SHOP_ID?.trim();
+    const configuredOwnerUid = process.env.OWNER_UID?.trim();
     if (
       !authUser.shopId &&
-      process.env.LEGACY_SINGLE_TENANT_MODE === "true" &&
-      process.env.SHOP_ID?.trim()
+      authUser.role === "owner" &&
+      configuredShopId &&
+      configuredOwnerUid === authUser.uid
     ) {
-      authUser.shopId = process.env.SHOP_ID.trim();
+      authUser.shopId = configuredShopId;
+      try {
+        await adminDb.collection("users").doc(authUser.uid).set(
+          { shopId: configuredShopId },
+          { merge: true },
+        );
+      } catch (error) {
+        console.error("Configured legacy shopId backfill failed:", error);
+      }
     }
 
     // Multi-tenant: every user must be bound to a shop.
