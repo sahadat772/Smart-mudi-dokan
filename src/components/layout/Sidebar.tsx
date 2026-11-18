@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   UserRound,
   Sparkles,
+  CreditCard,
 } from "lucide-react";
 import { UserRole } from "../../types";
 
@@ -28,6 +29,7 @@ export type NavPageId =
   | "reports"
   | "staff"
   | "settings"
+  | "subscription"
   | "login"
   | "change-password";
 
@@ -148,6 +150,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           label: "সেটিংস",
           sublabel: "দোকান ও রসিদ",
           icon: Settings,
+          ownerOnly: true,
+        },
+        {
+          id: "subscription",
+          label: "সাবস্ক্রিপশন",
+          sublabel: "প্ল্যান ও নবায়ন",
+          icon: CreditCard,
           ownerOnly: true,
         },
       ],
