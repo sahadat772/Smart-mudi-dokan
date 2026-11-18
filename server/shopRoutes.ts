@@ -96,7 +96,7 @@ router.post("/register", async (req, res) => {
 
       const shopRef = adminDb.collection("shops").doc(shopId);
       const userRef = adminDb.collection("users").doc(uid);
-      const settingsRef = adminDb.collection("settings").doc(shopId);
+      const settingsRef = adminDb.collection("shopSettings").doc(shopId);
 
       await adminDb.runTransaction(async (tx) => {
         tx.set(shopRef, {
