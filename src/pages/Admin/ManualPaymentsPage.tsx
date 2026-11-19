@@ -74,10 +74,12 @@ export const ManualPaymentsPage: React.FC = () => {
     ) {
       return;
     }
-    const reason =
+    const rejectionInput =
       action === "reject"
-        ? window.prompt("Reject করার কারণ লিখুন (ঐচ্ছিক):") || ""
-        : "";
+        ? window.prompt("Reject করার কারণ লিখুন (ঐচ্ছিক):")
+        : null;
+    if (action === "reject" && rejectionInput === null) return;
+    const reason = rejectionInput || "";
     setBusyId(request.id);
     setError("");
     setNotice("");
