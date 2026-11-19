@@ -1,17 +1,16 @@
 import React, { useEffect, useState } from "react";
-import { AlertTriangle, CalendarClock, CheckCircle2, X } from "lucide-react";
+import { AlertTriangle, CalendarClock, CheckCircle2, Clock3 } from "lucide-react";
 import { apiFetch } from "../../api/client";
 
 type Plan = "basic" | "pro";
 type BillingCycle = "monthly" | "yearly";
+type PaymentMethod = "bkash" | "nagad" | "bank" | "cash";
 
 interface ShopSubscription {
   plan: string;
   status: string;
   trialEndsAt?: string | null;
   subscriptionEndsAt?: string | null;
-  phone?: string | null;
-  address?: string | null;
 }
 
 interface PlanOption {
@@ -22,146 +21,134 @@ interface PlanOption {
   available: boolean;
 }
 
+interface PaymentMethodOption {
+  id: PaymentMethod;
+  label: string;
+  instructions: string;
+  available: boolean;
+}
+
+interface PaymentRecord {
+  id: string;
+  plan: Plan;
+  billingCycle: BillingCycle;
+  amount: number;
+  paymentMethod: PaymentMethod;
+  paymentReference: string;
+  status: "pending_review" | "approved" | "rejected" | string;
+  rejectionReason?: string;
+  createdAt?: string | null;
+}
+
 const inputClass =
   "w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100";
 
-type PaymentReturnStatus = "success" | "failed" | "cancelled" | "review";
-
-const paymentMessages: Record<PaymentReturnStatus, string> = {
-  success: "পেমেন্ট যাচাই হয়েছে। আপনার plan নবায়নের তথ্য নিচে দেখুন।",
-  failed: "পেমেন্ট সম্পন্ন হয়নি। আবার চেষ্টা করুন বা অ্যাডমিনের সাথে যোগাযোগ করুন।",
-  cancelled: "পেমেন্ট বাতিল করা হয়েছে। চাইলে পরে আবার চেষ্টা করতে পারেন।",
-  review: "পেমেন্ট পাওয়া গেছে; নিরাপত্তা যাচাই শেষে plan সক্রিয় হবে।",
+const formatDate = (value?: string | null) => {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? "—"
+    : new Intl.DateTimeFormat("bn-BD", { dateStyle: "medium" }).format(date);
 };
 
-export const PaymentReturnNotice: React.FC = () => {
-  const [status, setStatus] = useState<PaymentReturnStatus | null>(null);
-
-  useEffect(() => {
-    const url = new URL(window.location.href);
-    const value = url.searchParams.get("subscription");
-    if (
-      value === "success" ||
-      value === "failed" ||
-      value === "cancelled" ||
-      value === "review"
-    ) {
-      setStatus(value);
-      url.searchParams.delete("subscription");
-      window.history.replaceState(
-        window.history.state,
-        "",
-        `${url.pathname}${url.search}${url.hash}`,
-      );
-    }
-  }, []);
-
-  if (!status) return null;
-  const succeeded = status === "success";
-  const review = status === "review";
-
-  return (
-    <div
-      role="status"
-      className={`mb-4 flex items-start gap-2 rounded-xl border p-3 text-xs ${
-        succeeded
-          ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-          : review
-            ? "border-amber-200 bg-amber-50 text-amber-950"
-            : "border-rose-200 bg-rose-50 text-rose-900"
-      }`}
-    >
-      {succeeded ? (
-        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-      ) : (
-        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-      )}
-      <p className="flex-1">{paymentMessages[status]}</p>
-      <button
-        type="button"
-        onClick={() => setStatus(null)}
-        aria-label="পেমেন্ট বার্তা বন্ধ করুন"
-        className="rounded-md p-0.5 opacity-70 hover:bg-black/5 hover:opacity-100"
-      >
-        <X className="h-4 w-4" />
-      </button>
-    </div>
-  );
-};
-
-export const SubscriptionBanner: React.FC<{ forceShow?: boolean }> = ({
-  forceShow = false,
-}) => {
+export const SubscriptionBanner: React.FC<{
+  forceShow?: boolean;
+  isOwner?: boolean;
+}> = ({ forceShow = false, isOwner = false }) => {
   const [subscription, setSubscription] = useState<ShopSubscription | null>(null);
   const [plans, setPlans] = useState<PlanOption[]>([]);
-  const [contact, setContact] = useState({
-    phone: "",
-    address: "",
-    city: "",
-    postcode: "",
-  });
-  const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [methods, setMethods] = useState<PaymentMethodOption[]>([]);
+  const [payments, setPayments] = useState<PaymentRecord[]>([]);
+  const [selectedPlan, setSelectedPlan] = useState<PlanOption | null>(null);
+  const [selectedMethod, setSelectedMethod] = useState<PaymentMethod | "">("");
+  const [paymentReference, setPaymentReference] = useState("");
+  const [payerPhone, setPayerPhone] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  const reloadPaymentHistory = async () => {
+    if (!isOwner) return;
+    const data = await apiFetch<{ payments: PaymentRecord[] }>(
+      "/api/subscriptions/payments",
+    );
+    setPayments(data.payments || []);
+  };
 
   useEffect(() => {
     let active = true;
-    void Promise.all([
-      apiFetch<{ shop: ShopSubscription }>("/api/shops/me"),
-      apiFetch<{ plans: PlanOption[] }>("/api/subscriptions/plans"),
-    ])
-      .then(([shopData, planData]) => {
+    const load = async () => {
+      try {
+        const [shopData, planData] = await Promise.all([
+          apiFetch<{ shop: ShopSubscription }>("/api/shops/me"),
+          apiFetch<{
+            plans: PlanOption[];
+            paymentMethods: PaymentMethodOption[];
+          }>("/api/subscriptions/plans"),
+        ]);
         if (!active) return;
         setSubscription(shopData.shop);
         setPlans(planData.plans || []);
-        setContact((current) => ({
-          ...current,
-          phone: shopData.shop.phone || "",
-          address: shopData.shop.address || "",
-        }));
-      })
-      .catch((loadError) => {
+        setMethods(planData.paymentMethods || []);
+        if (isOwner) {
+          const history = await apiFetch<{ payments: PaymentRecord[] }>(
+            "/api/subscriptions/payments",
+          );
+          if (active) setPayments(history.payments || []);
+        }
+      } catch (loadError) {
         console.error("Failed to load subscription details:", loadError);
-      });
-
+      }
+    };
+    void load();
     return () => {
       active = false;
     };
-  }, []);
+  }, [isOwner]);
 
-  const startCheckout = async (option: PlanOption) => {
-    if (isCheckingOut) return;
-    if (
-      !contact.phone.trim() ||
-      !contact.address.trim() ||
-      !contact.city.trim() ||
-      !contact.postcode.trim()
-    ) {
-      setError("পেমেন্টের জন্য ফোন, ঠিকানা, শহর ও পোস্টকোড পূরণ করুন।");
+  const submitManualPayment = async () => {
+    if (!selectedPlan || !selectedMethod || isSubmitting) return;
+    const pendingRequest = payments.find((payment) => payment.status === "pending_review");
+    if (pendingRequest) {
+      setError("একটি payment request ইতিমধ্যে admin review-এ আছে।");
+      return;
+    }
+    if (selectedMethod !== "cash" && !paymentReference.trim()) {
+      setError("Transaction ID বা payment reference লিখুন।");
       return;
     }
 
     setError("");
-    setIsCheckingOut(true);
+    setMessage("");
+    setIsSubmitting(true);
     try {
-      const data = await apiFetch<{ paymentUrl: string }>(
-        "/api/subscriptions/checkout",
+      const result = await apiFetch<{ message: string }>(
+        "/api/subscriptions/manual-payment",
         {
           method: "POST",
           body: JSON.stringify({
-            plan: option.plan,
-            cycle: option.cycle,
-            ...contact,
+            plan: selectedPlan.plan,
+            cycle: selectedPlan.cycle,
+            method: selectedMethod,
+            paymentReference: paymentReference.trim(),
+            payerPhone: payerPhone.trim(),
           }),
         },
       );
-      window.location.assign(data.paymentUrl);
-    } catch (checkoutError) {
+      setMessage(result.message || "Payment request জমা হয়েছে।");
+      setSelectedPlan(null);
+      setSelectedMethod("");
+      setPaymentReference("");
+      setPayerPhone("");
+      await reloadPaymentHistory();
+    } catch (requestError) {
       setError(
-        checkoutError instanceof Error
-          ? checkoutError.message
-          : "পেমেন্ট চালু করা যায়নি। আবার চেষ্টা করুন।",
+        requestError instanceof Error
+          ? requestError.message
+          : "Payment request জমা হয়নি। আবার চেষ্টা করুন।",
       );
-      setIsCheckingOut(false);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -172,6 +159,7 @@ export const SubscriptionBanner: React.FC<{ forceShow?: boolean }> = ({
       </div>
     ) : null;
   }
+
   const isTrial = subscription.plan === "trial";
   const endDateValue = isTrial
     ? subscription.trialEndsAt
@@ -196,11 +184,13 @@ export const SubscriptionBanner: React.FC<{ forceShow?: boolean }> = ({
   }
 
   const availablePlans = plans.filter((plan) => plan.available);
+  const selectedMethodOption = methods.find((method) => method.id === selectedMethod);
+  const pendingPayment = payments.find((payment) => payment.status === "pending_review");
 
   return (
-    <div
+    <section
       id="subscription-banner"
-      role="status"
+      aria-label="সাবস্ক্রিপশন"
       className={`mb-4 rounded-xl border p-3 text-xs ${
         inactive || expired
           ? "border-rose-200 bg-rose-50 text-rose-900"
@@ -229,90 +219,162 @@ export const SubscriptionBanner: React.FC<{ forceShow?: boolean }> = ({
           </p>
           <p className="mt-0.5 opacity-90">
             {inactive || expired
-              ? "তথ্য দেখা যাবে; সেবা চালু রাখতে নিচে একটি plan নিন অথবা অ্যাডমিনের সাথে যোগাযোগ করুন।"
+              ? "Plan নির্বাচন করে manual payment request দিন; admin যাচাই করে চালু করবেন।"
               : !hasEndDate
-                ? "এই plan-এর মেয়াদ নির্ধারিত নেই। plan পরিবর্তন বা payment জানতে নিচে দেখুন।"
-                : "সেবা চালু রাখতে মেয়াদ শেষ হওয়ার আগে plan নবায়ন করুন।"}
+                ? "এই plan-এর নির্দিষ্ট মেয়াদ নেই। Plan পরিবর্তন বা নবায়নের request দিতে পারেন।"
+                : "মেয়াদ শেষ হওয়ার আগে manual payment দিয়ে plan নবায়ন করুন।"}
           </p>
         </div>
       </div>
 
-      {availablePlans.length > 0 ? (
+      {isOwner && (
         <div className="mt-3 border-t border-current/10 pt-3">
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {availablePlans.map((option) => (
-              <button
-                key={`${option.plan}-${option.cycle}`}
-                type="button"
-                disabled={isCheckingOut}
-                onClick={() => void startCheckout(option)}
-                className="rounded-lg border border-emerald-700 bg-emerald-700 px-3 py-2 text-left font-semibold text-white hover:bg-emerald-800 disabled:cursor-wait disabled:opacity-60"
-              >
-                {option.plan === "basic" ? "Basic" : "Pro"} ·{" "}
-                {option.cycle === "monthly" ? "মাসিক" : "বার্ষিক"} · ৳
-                {option.amount}
-                {isCheckingOut ? " · অপেক্ষা করুন..." : " · পেমেন্ট করুন"}
-              </button>
-            ))}
-          </div>
+          {pendingPayment && (
+            <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-300 bg-white/80 p-2.5 text-amber-950">
+              <Clock3 className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <p className="font-semibold">Payment request যাচাইয়ের অপেক্ষায়</p>
+                <p>
+                  {pendingPayment.plan.toUpperCase()} · {pendingPayment.billingCycle === "monthly" ? "মাসিক" : "বার্ষিক"} · ৳{pendingPayment.amount}
+                </p>
+              </div>
+            </div>
+          )}
 
-          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <input
-              type="tel"
-              maxLength={20}
-              value={contact.phone}
-              onChange={(event) =>
-                setContact((current) => ({ ...current, phone: event.target.value }))
-              }
-              placeholder="মোবাইল নম্বর"
-              aria-label="পেমেন্টের মোবাইল নম্বর"
-              className={inputClass}
-            />
-            <input
-              value={contact.address}
-              maxLength={50}
-              onChange={(event) =>
-                setContact((current) => ({ ...current, address: event.target.value }))
-              }
-              placeholder="ঠিকানা"
-              aria-label="পেমেন্টের ঠিকানা"
-              className={inputClass}
-            />
-            <input
-              value={contact.city}
-              maxLength={50}
-              onChange={(event) =>
-                setContact((current) => ({ ...current, city: event.target.value }))
-              }
-              placeholder="শহর"
-              aria-label="পেমেন্টের শহর"
-              className={inputClass}
-            />
-            <input
-              value={contact.postcode}
-              maxLength={10}
-              onChange={(event) =>
-                setContact((current) => ({
-                  ...current,
-                  postcode: event.target.value,
-                }))
-              }
-              placeholder="পোস্টকোড"
-              aria-label="পেমেন্টের পোস্টকোড"
-              className={inputClass}
-            />
-          </div>
+          {availablePlans.length > 0 ? (
+            <>
+              <p className="mb-2 font-semibold">Plan ও মেয়াদ নির্বাচন করুন</p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {availablePlans.map((option) => {
+                  const selected =
+                    selectedPlan?.plan === option.plan &&
+                    selectedPlan?.cycle === option.cycle;
+                  return (
+                    <button
+                      key={`${option.plan}-${option.cycle}`}
+                      type="button"
+                      disabled={Boolean(pendingPayment)}
+                      onClick={() => {
+                        setSelectedPlan(option);
+                        setSelectedMethod("");
+                        setError("");
+                      }}
+                      className={`rounded-lg border px-3 py-2 text-left font-semibold disabled:opacity-50 ${
+                        selected
+                          ? "border-emerald-700 bg-emerald-700 text-white"
+                          : "border-emerald-300 bg-white text-emerald-900 hover:bg-emerald-50"
+                      }`}
+                    >
+                      {option.plan === "basic" ? "Basic" : "Pro"} · {option.cycle === "monthly" ? "মাসিক" : "বার্ষিক"} · ৳{option.amount}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {selectedPlan && !pendingPayment && (
+                <div className="mt-3 space-y-3 rounded-lg border border-slate-200 bg-white p-3 text-slate-800">
+                  <p className="font-semibold">
+                    Payment method বেছে নিন · ৳{selectedPlan.amount}
+                  </p>
+                  {methods.filter((method) => method.available).length > 0 ? (
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {methods.filter((method) => method.available).map((method) => (
+                        <button
+                          key={method.id}
+                          type="button"
+                          onClick={() => setSelectedMethod(method.id)}
+                          className={`rounded-lg border p-2 text-left ${
+                            selectedMethod === method.id
+                              ? "border-blue-600 bg-blue-50"
+                              : "border-slate-200 hover:bg-slate-50"
+                          }`}
+                        >
+                          <span className="font-semibold">{method.label}</span>
+                          <span className="mt-1 block whitespace-pre-wrap text-[11px] text-slate-600">
+                            {method.instructions}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="rounded-lg bg-amber-50 p-2 text-amber-900">
+                      Payment account/instruction এখনো সেট করা হয়নি। Admin-এর সাথে যোগাযোগ করুন।
+                    </p>
+                  )}
+
+                  {selectedMethod && selectedMethodOption && (
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {selectedMethod !== "cash" && (
+                        <input
+                          value={paymentReference}
+                          maxLength={120}
+                          onChange={(event) => setPaymentReference(event.target.value)}
+                          placeholder="Transaction ID / reference"
+                          aria-label="Payment transaction reference"
+                          className={inputClass}
+                        />
+                      )}
+                      {(selectedMethod === "bkash" || selectedMethod === "nagad") && (
+                        <input
+                          type="tel"
+                          value={payerPhone}
+                          maxLength={30}
+                          onChange={(event) => setPayerPhone(event.target.value)}
+                          placeholder="যে নম্বর থেকে টাকা পাঠিয়েছেন"
+                          aria-label="যে নম্বর থেকে টাকা পাঠানো হয়েছে"
+                          className={inputClass}
+                        />
+                      )}
+                      <button
+                        type="button"
+                        disabled={isSubmitting || Boolean(pendingPayment)}
+                        onClick={() => void submitManualPayment()}
+                        className="rounded-lg bg-emerald-700 px-3 py-2 font-semibold text-white hover:bg-emerald-800 disabled:cursor-wait disabled:opacity-60"
+                      >
+                        {isSubmitting ? "Request পাঠানো হচ্ছে..." : "Admin approval-এর জন্য পাঠান"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="rounded-lg bg-white/80 p-2 text-amber-950">
+              Plan-এর দাম এখনো নির্ধারণ করা হয়নি। Admin-এর সাথে যোগাযোগ করুন।
+            </p>
+          )}
+
+          {message && (
+            <p role="status" className="mt-2 rounded-lg bg-emerald-100 p-2 text-emerald-900">
+              <CheckCircle2 className="mr-1 inline h-3.5 w-3.5" />{message}
+            </p>
+          )}
           {error && (
-            <p role="alert" className="mt-2 rounded-lg bg-white/80 px-2.5 py-2 text-rose-800">
+            <p role="alert" className="mt-2 rounded-lg bg-white p-2 text-rose-800">
               {error}
             </p>
           )}
+
+          {payments.length > 0 && (
+            <div className="mt-4 border-t border-current/10 pt-3">
+              <p className="mb-2 font-semibold">Payment request history</p>
+              <div className="space-y-2">
+                {payments.slice(0, 10).map((payment) => (
+                  <div key={payment.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white/80 p-2">
+                    <span>{payment.plan.toUpperCase()} · {payment.billingCycle === "monthly" ? "মাসিক" : "বার্ষিক"} · ৳{payment.amount}</span>
+                    <span className="font-semibold">
+                      {payment.status === "approved" ? "অনুমোদিত" : payment.status === "rejected" ? "বাতিল" : "যাচাই চলছে"}
+                      {payment.createdAt ? ` · ${formatDate(payment.createdAt)}` : ""}
+                    </span>
+                    {payment.rejectionReason && <p className="w-full text-rose-700">কারণ: {payment.rejectionReason}</p>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
-      ) : (
-        <p className="mt-3 border-t border-current/10 pt-3 opacity-90">
-          অনলাইন পেমেন্ট এখনো চালু হয়নি। plan চালু করতে অ্যাডমিনের সাথে যোগাযোগ করুন।
-        </p>
       )}
-    </div>
+    </section>
   );
 };
+
