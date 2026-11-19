@@ -21,10 +21,7 @@ import { Topbar } from "./components/layout/Topbar";
 import { MobileNav } from "./components/layout/MobileNav";
 import { DemoBanner } from "./components/common/DemoBanner";
 import { AssistantChat } from "./components/common/AssistantChat";
-import {
-  PaymentReturnNotice,
-  SubscriptionBanner,
-} from "./components/common/SubscriptionBanner";
+import { SubscriptionBanner } from "./components/common/SubscriptionBanner";
 import { ReceiptModal } from "./components/pos/ReceiptModal";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
@@ -43,6 +40,7 @@ import { SettingsPage } from "./pages/Settings/SettingsPage";
 import { LoginPage } from "./pages/Login/LoginPage";
 import StaffManagement from "./pages/Staff/StaffManagement";
 import { ChangePasswordPage } from "./pages/ChangePassword/ChangePasswordPage";
+import { ManualPaymentsPage } from "./pages/Admin/ManualPaymentsPage";
 
 const defaultShopSettings: ShopSettings = {
   shopName: "স্মার্ট মুদি দোকান",
@@ -75,6 +73,7 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState<NavPageId>("dashboard");
   const [currentRole, setCurrentRole] = useState<UserRole | null>(null);
   const [mustChangePassword, setMustChangePassword] = useState(false);
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [userPermissions, setUserPermissions] = useState<
     Record<string, { view: boolean; manage: boolean }>
   >({});
@@ -103,6 +102,7 @@ export default function App() {
     setAuthUser(null);
     setCurrentRole(null);
     setMustChangePassword(false);
+    setIsPlatformAdmin(false);
     setUserPermissions({});
     setDisplayName(undefined);
     setCurrentPage("dashboard");
@@ -257,6 +257,9 @@ export default function App() {
 
   useEffect(() => {
     if (!authUser || !currentRole || mustChangePassword) return;
+    void apiFetch<{ isPlatformAdmin: boolean }>("/api/subscriptions/admin/me")
+      .then((data) => setIsPlatformAdmin(data.isPlatformAdmin === true))
+      .catch(() => setIsPlatformAdmin(false));
     void apiFetch<{ shop: NonNullable<typeof subscriptionNotice> }>("/api/shops/me")
       .then((data) => setSubscriptionNotice(data.shop))
       .catch((error) => {
@@ -284,6 +287,7 @@ export default function App() {
   ]);
 
   const canAccessPage = (page: NavPageId): boolean => {
+    if (page === "platform-admin") return isPlatformAdmin;
     if (currentRole === "owner") return true;
     if (
       page === "staff" ||
@@ -303,7 +307,7 @@ export default function App() {
       return;
     }
     if (!canAccessPage(currentPage)) setCurrentPage("dashboard");
-  }, [currentRole, currentPage, userPermissions, mustChangePassword]);
+  }, [currentRole, currentPage, userPermissions, mustChangePassword, isPlatformAdmin]);
 
   const lowStockCount = products.filter(
     (p) => p.stockQuantity <= p.lowStockThreshold,
@@ -526,6 +530,7 @@ export default function App() {
           currentRole={currentRole}
           permissions={userPermissions}
           lowStockCount={lowStockCount}
+          isPlatformAdmin={isPlatformAdmin}
         />
         <div className="flex-1 flex flex-col min-w-0 overflow-y-auto pb-20 lg:pb-8">
           <Topbar
@@ -546,7 +551,9 @@ export default function App() {
             shopName={shopSettings.shopName}
           />
           <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
-            <PaymentReturnNotice />
+            {currentPage === "platform-admin" && isPlatformAdmin && (
+              <ManualPaymentsPage />
+            )}
             {currentPage === "subscription" && (
               <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4">
                 <h2 className="text-base font-bold text-slate-900">সাবস্ক্রিপশন</h2>
@@ -555,7 +562,10 @@ export default function App() {
                 </p>
               </div>
             )}
-            <SubscriptionBanner forceShow={currentPage === "subscription"} />
+            <SubscriptionBanner
+              forceShow={currentPage === "subscription"}
+              isOwner={currentRole === "owner"}
+            />
             {productsError && (
               <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900">
                 পণ্য লোড সমস্যা: {productsError}
@@ -718,3 +728,4 @@ export default function App() {
     </div>
   );
 }
+
