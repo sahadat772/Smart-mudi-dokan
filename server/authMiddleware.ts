@@ -1,6 +1,11 @@
 import type { Request, Response, NextFunction } from "express";
+import { FieldValue } from "firebase-admin/firestore";
 import { adminAuth, adminDb } from "./firebaseAdmin.js";
 import { authClaimsMatchProfile } from "./authIdentity.js";
+import {
+  canBackfillLegacyEmployee,
+  checkShopMembership,
+} from "./shopMembership.js";
 
 export type ModuleKey =
   | "dashboard"
@@ -150,6 +155,23 @@ export async function verifyUser(
       }
     }
 
+    // Safely migrate an old employee only when the legacy switch is enabled
+    // and Firebase's signed claims already bind that employee to this shop.
+    if (
+      !authUser.shopId &&
+      canBackfillLegacyEmployee(authUser, decodedToken, {
+        ownerUid: configuredOwnerUid,
+        shopId: configuredShopId,
+        enabled: process.env.LEGACY_SINGLE_TENANT_MODE === "true",
+      })
+    ) {
+      authUser.shopId = configuredShopId;
+      await adminDb.collection("users").doc(authUser.uid).set(
+        { shopId: configuredShopId },
+        { merge: true },
+      );
+    }
+
     // Multi-tenant: every user must be bound to a shop.
     if (!authUser.shopId) {
       return res.status(403).json({
@@ -165,6 +187,59 @@ export async function verifyUser(
       return res.status(403).json({
         success: false,
         message: "Account access information is inconsistent. Sign in again or contact support.",
+      });
+    }
+
+    const shopRef = adminDb.collection("shops").doc(authUser.shopId);
+    let shopSnap = await shopRef.get();
+    let membership = checkShopMembership(
+      authUser,
+      { exists: shopSnap.exists, ownerUid: shopSnap.data()?.ownerUid },
+      {
+        ownerUid: configuredOwnerUid,
+        shopId: configuredShopId,
+        enabled: process.env.LEGACY_SINGLE_TENANT_MODE === "true",
+      },
+    );
+
+    if (membership.allowed && membership.provisionLegacyShop) {
+      // The only implicit migration is the exact configured legacy binding.
+      // This creates the missing tenant record before any protected route runs.
+      const legacyOwnerUid =
+        authUser.role === "owner" ? authUser.uid : configuredOwnerUid;
+      if (!legacyOwnerUid) {
+        return res.status(403).json({
+          success: false,
+          message: "Shop membership could not be verified.",
+        });
+      }
+      await adminDb.runTransaction(async (tx) => {
+        const current = await tx.get(shopRef);
+        if (!current.exists) {
+          tx.create(shopRef, {
+            id: authUser.shopId,
+            name: process.env.SHOP_NAME?.trim() || authUser.shopId,
+            phone: null,
+            address: null,
+            ownerUid: legacyOwnerUid,
+            plan: "basic",
+            status: "active",
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        }
+      });
+      shopSnap = await shopRef.get();
+      membership = checkShopMembership(
+        authUser,
+        { exists: shopSnap.exists, ownerUid: shopSnap.data()?.ownerUid },
+      );
+    }
+
+    if (!membership.allowed) {
+      return res.status(403).json({
+        success: false,
+        message: "Shop membership could not be verified.",
       });
     }
 
