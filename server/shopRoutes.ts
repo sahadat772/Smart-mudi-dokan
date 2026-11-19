@@ -2,11 +2,7 @@ import { Router } from "express";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminAuth, adminDb } from "./firebaseAdmin.js";
 import { verifyUser, type AuthenticatedRequest } from "./authMiddleware.js";
-import {
-  isConfiguredLegacyShopOwner,
-  resolveShopId,
-  type ShopPlan,
-} from "./shopContext.js";
+import { resolveShopId, type ShopPlan } from "./shopContext.js";
 
 const router = Router();
 
@@ -181,41 +177,13 @@ router.get("/me", verifyUser, async (req: AuthenticatedRequest, res) => {
   try {
     const shopId = resolveShopId(req);
     const shopRef = adminDb.collection("shops").doc(shopId);
-    let snap = await shopRef.get();
+    const snap = await shopRef.get();
 
     if (!snap.exists) {
-      // Create the missing tenant record only for the exact owner/shop pair
-      // configured by the operator. Existing legacy records are left intact.
-      if (!isConfiguredLegacyShopOwner(req, shopId)) {
-        return res.json({
-          success: true,
-          shop: {
-            id: shopId,
-            name: process.env.SHOP_NAME || shopId,
-            plan: "basic",
-            status: "active",
-            legacy: true,
-          },
-        });
-      }
-
-      await adminDb.runTransaction(async (tx) => {
-        const current = await tx.get(shopRef);
-        if (!current.exists) {
-          tx.create(shopRef, {
-            id: shopId,
-            name: process.env.SHOP_NAME || shopId,
-            phone: null,
-            address: null,
-            ownerUid: req.user!.uid,
-            plan: "basic",
-            status: "active",
-            createdAt: FieldValue.serverTimestamp(),
-            updatedAt: FieldValue.serverTimestamp(),
-          });
-        }
+      return res.status(403).json({
+        success: false,
+        message: "Shop membership could not be verified.",
       });
-      snap = await shopRef.get();
     }
 
     const data = snap.data() || {};
@@ -249,3 +217,4 @@ router.get("/me", verifyUser, async (req: AuthenticatedRequest, res) => {
 });
 
 export default router;
+
