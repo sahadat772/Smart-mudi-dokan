@@ -10,6 +10,7 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "test:security": "node --test tests/security/authIdentity.test.ts tests/security/cashSession.test.ts",
+    "test:security:integration": "node --import ./tests/security/ts-resolution.mjs --test tests/security/crossShopApi.test.ts",
     "server": "npx tsx server/index.ts"
   },
   "dependencies": {
