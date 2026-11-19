@@ -1,8 +1,12 @@
 import React, { useEffect, useState } from "react";
-import { AlertTriangle, CalendarClock, CheckCircle2, Clock3 } from "lucide-react";
+import { AlertTriangle, CalendarClock, Check, CheckCircle2, Clock3 } from "lucide-react";
 import { apiFetch } from "../../api/client";
+import {
+  SUBSCRIPTION_PLANS,
+  type SubscriptionPlanId,
+} from "../../../shared/subscriptionPlans";
 
-type Plan = "basic" | "pro";
+type Plan = SubscriptionPlanId;
 type BillingCycle = "monthly" | "yearly";
 type PaymentMethod = "bkash" | "nagad" | "bank" | "cash";
 
@@ -19,6 +23,10 @@ interface PlanOption {
   amount: number;
   currency: "BDT";
   available: boolean;
+  displayName: string;
+  description: string;
+  limits: (typeof SUBSCRIPTION_PLANS)[Plan]["limits"];
+  features: readonly string[];
 }
 
 interface PaymentMethodOption {
@@ -57,6 +65,7 @@ export const SubscriptionBanner: React.FC<{
 }> = ({ forceShow = false, isOwner = false }) => {
   const [subscription, setSubscription] = useState<ShopSubscription | null>(null);
   const [plans, setPlans] = useState<PlanOption[]>([]);
+  const [billingCycle, setBillingCycle] = useState<BillingCycle>("monthly");
   const [methods, setMethods] = useState<PaymentMethodOption[]>([]);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [selectedPlan, setSelectedPlan] = useState<PlanOption | null>(null);
@@ -183,7 +192,8 @@ export const SubscriptionBanner: React.FC<{
     return null;
   }
 
-  const availablePlans = plans.filter((plan) => plan.available);
+  const getPriceOption = (plan: Plan) =>
+    plans.find((option) => option.plan === plan && option.cycle === billingCycle);
   const selectedMethodOption = methods.find((method) => method.id === selectedMethod);
   const pendingPayment = payments.find((payment) => payment.status === "pending_review");
 
@@ -241,32 +251,90 @@ export const SubscriptionBanner: React.FC<{
             </div>
           )}
 
-          {availablePlans.length > 0 ? (
+          {plans.length > 0 ? (
             <>
-              <p className="mb-2 font-semibold">Plan ও মেয়াদ নির্বাচন করুন</p>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {availablePlans.map((option) => {
-                  const selected =
-                    selectedPlan?.plan === option.plan &&
-                    selectedPlan?.cycle === option.cycle;
-                  return (
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="font-bold text-slate-900">আপনার দোকানের জন্য Plan বেছে নিন</p>
+                  <p className="mt-1 text-[11px] text-slate-600">দাম Render configuration থেকে এসেছে।</p>
+                </div>
+                <div className="inline-flex rounded-lg bg-slate-200 p-1" role="group" aria-label="Billing cycle">
+                  {(["monthly", "yearly"] as const).map((cycle) => (
                     <button
-                      key={`${option.plan}-${option.cycle}`}
+                      key={cycle}
                       type="button"
-                      disabled={Boolean(pendingPayment)}
+                      aria-pressed={billingCycle === cycle}
                       onClick={() => {
-                        setSelectedPlan(option);
+                        setBillingCycle(cycle);
+                        setSelectedPlan(null);
                         setSelectedMethod("");
-                        setError("");
                       }}
-                      className={`rounded-lg border px-3 py-2 text-left font-semibold disabled:opacity-50 ${
-                        selected
-                          ? "border-emerald-700 bg-emerald-700 text-white"
-                          : "border-emerald-300 bg-white text-emerald-900 hover:bg-emerald-50"
-                      }`}
+                      className={`rounded-md px-3 py-1.5 text-xs font-semibold ${billingCycle === cycle ? "bg-white text-emerald-800 shadow-sm" : "text-slate-600"}`}
                     >
-                      {option.plan === "basic" ? "Basic" : "Pro"} · {option.cycle === "monthly" ? "মাসিক" : "বার্ষিক"} · ৳{option.amount}
+                      {cycle === "monthly" ? "মাসিক" : "বার্ষিক"}
                     </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 items-stretch gap-3 xl:grid-cols-2">
+                {(Object.keys(SUBSCRIPTION_PLANS) as Plan[]).map((planId) => {
+                  const config = SUBSCRIPTION_PLANS[planId];
+                  const option = getPriceOption(planId);
+                  const selected = selectedPlan?.plan === planId && selectedPlan.cycle === billingCycle;
+                  const limits = [
+                    ["দোকান", config.limits.shops],
+                    ["Staff (Owner ছাড়া)", config.limits.staff],
+                    ["Product", config.limits.products],
+                  ] as const;
+                  return (
+                    <article
+                      key={planId}
+                      className={`flex flex-col rounded-xl border bg-white p-4 shadow-sm ${selected ? "border-emerald-600 ring-2 ring-emerald-100" : "border-slate-200"}`}
+                    >
+                      <div>
+                        <h3 className="text-base font-bold text-slate-900">{config.displayName}</h3>
+                        <p className="mt-1 text-xs text-slate-600">{config.description}</p>
+                      </div>
+                      <div className="my-4">
+                        {option?.available ? (
+                          <p className="text-2xl font-extrabold text-slate-950">
+                            ৳{option.amount.toLocaleString("bn-BD")}<span className="ml-1 text-xs font-medium text-slate-500">/{billingCycle === "monthly" ? "মাস" : "বছর"}</span>
+                          </p>
+                        ) : (
+                          <p className="text-sm font-semibold text-amber-800">এই মেয়াদের মূল্য নির্ধারিত হয়নি</p>
+                        )}
+                      </div>
+                      <div className="mb-4 grid grid-cols-3 gap-2 rounded-lg bg-slate-50 p-2 text-center">
+                        {limits.map(([label, value]) => (
+                          <div key={label}>
+                            <p className="text-sm font-bold text-slate-900">{value === null ? "সীমা নেই" : value.toLocaleString("bn-BD")}</p>
+                            <p className="mt-0.5 text-[10px] leading-tight text-slate-500">{label}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <ul className="mb-4 flex-1 space-y-2">
+                        {config.features.map((feature) => (
+                          <li key={feature} className="flex items-start gap-2 text-xs text-slate-700">
+                            <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-700" />
+                            <span>{feature}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      <button
+                        type="button"
+                        disabled={!option?.available || Boolean(pendingPayment)}
+                        onClick={() => {
+                          if (!option?.available) return;
+                          setSelectedPlan(option);
+                          setSelectedMethod("");
+                          setError("");
+                        }}
+                        className={`w-full rounded-lg px-3 py-2 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-50 ${selected ? "bg-emerald-800 text-white" : "border border-emerald-700 text-emerald-800 hover:bg-emerald-50"}`}
+                      >
+                        {option?.available ? (selected ? "নির্বাচিত" : "এই Plan নিন") : "মূল্য পাওয়া যায়নি"}
+                      </button>
+                    </article>
                   );
                 })}
               </div>
