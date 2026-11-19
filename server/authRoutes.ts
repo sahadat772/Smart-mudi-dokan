@@ -3,6 +3,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { adminAuth, adminDb } from "./firebaseAdmin.js";
 import { verifyUser, type AuthenticatedRequest } from "./authMiddleware.js";
 import { resolveShopId } from "./shopContext.js";
+import { validateBootstrapOwnerConfig } from "./bootstrapConfig.js";
 
 const router = Router();
 
@@ -30,14 +31,17 @@ router.get("/me", verifyUser, async (req: AuthenticatedRequest, res) => {
  */
 router.post("/bootstrap-owner", async (req, res) => {
   try {
-    const ownerUid = process.env.OWNER_UID?.trim();
-
-    if (!ownerUid) {
+    const bootstrapConfig = validateBootstrapOwnerConfig(
+      process.env.OWNER_UID,
+      process.env.SHOP_ID,
+    );
+    if (!bootstrapConfig.ok) {
       return res.status(500).json({
         success: false,
-        message: "OWNER_UID is not configured on the server.",
+        message: bootstrapConfig.message,
       });
     }
+    const { ownerUid, shopId: sid } = bootstrapConfig;
 
     const authHeader = req.headers.authorization;
 
@@ -57,8 +61,6 @@ router.post("/bootstrap-owner", async (req, res) => {
         message: "Only the configured owner account can run bootstrap.",
       });
     }
-
-    const sid = process.env.SHOP_ID?.trim() || "default";
 
     await adminAuth.setCustomUserClaims(ownerUid, {
       role: "owner",
@@ -117,3 +119,4 @@ router.post("/bootstrap-owner", async (req, res) => {
 });
 
 export default router;
+
