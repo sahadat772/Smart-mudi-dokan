@@ -40,11 +40,9 @@ export function enforceActiveSubscription(
     path.startsWith("/assistant/") ||
     path === "/auth" ||
     path.startsWith("/auth/") ||
-    path === "/subscriptions/checkout" ||
-    path === "/subscriptions/sslcommerz/success" ||
-    path === "/subscriptions/sslcommerz/fail" ||
-    path === "/subscriptions/sslcommerz/cancel" ||
-    path === "/subscriptions/sslcommerz/ipn";
+    path === "/subscriptions/manual-payment" ||
+    path === "/subscriptions/admin" ||
+    path.startsWith("/subscriptions/admin/");
 
   if (!WRITE_METHODS.has(req.method) || exempt) return next();
 
@@ -99,3 +97,4 @@ export function enforceActiveSubscription(
     }
   });
 }
+
