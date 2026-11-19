@@ -34,10 +34,54 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
   if (!sale) return null;
 
   const handlePrint = () => {
-    // Let layout settle, then print only #printable-receipt via CSS.
-    window.setTimeout(() => {
+    const receipt = document.getElementById("printable-receipt");
+    if (!receipt) return;
+
+    // Print in a clean document so modal scrolling/overflow cannot clip the receipt.
+    const printWindow = window.open("", "_blank", "width=420,height=720");
+    if (!printWindow) {
       window.print();
-    }, 50);
+      return;
+    }
+
+    const styles = Array.from(
+      document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'),
+    )
+      .map((link) => `<link rel="stylesheet" href="${link.href}">`)
+      .join("");
+
+    printWindow.document.open();
+    printWindow.document.write(`<!doctype html>
+      <html lang="bn">
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>${sale?.invoiceNo || "বিক্রয় রসিদ"}</title>
+          ${styles}
+          <style>
+            @page { size: 80mm 297mm; margin: 0; }
+            html, body { width: 80mm; min-width: 80mm; margin: 0; padding: 0; background: #fff; }
+            body { color: #000; font-family: "Hind Siliguri", Arial, sans-serif; }
+            #printable-receipt { width: 80mm; max-width: 80mm; box-sizing: border-box; margin: 0; padding: 2mm 4mm 8mm; border: 0; border-radius: 0; box-shadow: none; overflow: visible; }
+            #printable-receipt * { visibility: visible !important; }
+            .no-print { display: none !important; }
+            table { width: 100%; border-collapse: collapse; }
+            tr { break-inside: avoid; page-break-inside: avoid; }
+          </style>
+        </head>
+        <body>${receipt.outerHTML}</body>
+      </html>`);
+    printWindow.document.close();
+
+    void (printWindow.document.fonts?.ready || Promise.resolve()).then(() => {
+      printWindow.setTimeout(() => {
+        printWindow.focus();
+        printWindow.print();
+      }, 150);
+    });
+    printWindow.addEventListener("afterprint", () => printWindow.close(), {
+      once: true,
+    });
   };
 
   return (
@@ -209,3 +253,4 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
     </Modal>
   );
 };
+
