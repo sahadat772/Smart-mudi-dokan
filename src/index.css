@@ -86,11 +86,11 @@ th {
   }
 }
 
-/* Thermal / A4 receipt print — avoid bottom cut-off */
+/* Thermal receipt print — use a valid custom paper size and avoid modal clipping. */
 @media print {
   @page {
-    size: 80mm auto;
-    margin: 4mm;
+    size: 80mm 297mm;
+    margin: 0;
   }
 
   html,
@@ -111,14 +111,15 @@ th {
   }
 
   #printable-receipt {
-    position: absolute !important;
+    position: static !important;
     left: 0 !important;
     top: 0 !important;
     right: auto !important;
-    width: 72mm !important;
-    max-width: 72mm !important;
+    width: 80mm !important;
+    max-width: 80mm !important;
+    box-sizing: border-box !important;
     margin: 0 !important;
-    padding: 2mm 1mm 8mm 1mm !important;
+    padding: 2mm 4mm 8mm !important;
     background: white !important;
     color: black !important;
     box-shadow: none !important;
@@ -143,3 +144,4 @@ th {
     visibility: hidden !important;
   }
 }
+
