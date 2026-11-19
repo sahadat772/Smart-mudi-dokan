@@ -7,6 +7,7 @@ import {
   type AuthenticatedRequest,
 } from "./authMiddleware.js";
 import { resolveShopId } from "./shopContext.js";
+import { getShopPlanConfig } from "./planLimits.js";
 
 const router = Router();
 
@@ -267,6 +268,23 @@ router.post("/", verifyOwner, async (req, res) => {
         success: false,
         message: "Custom role requires permissions.",
       });
+    }
+
+    const planConfig = await getShopPlanConfig(sid);
+    const staffLimit = planConfig?.limits.staff;
+    if (staffLimit !== null && staffLimit !== undefined) {
+      const currentStaff = await adminDb
+        .collection("users")
+        .where("shopId", "==", sid)
+        .where("role", "==", "employee")
+        .get();
+      if (currentStaff.size >= staffLimit) {
+        return res.status(409).json({
+          success: false,
+          code: "staff_limit_reached",
+          message: `এই plan-এ Owner ছাড়া সর্বোচ্চ ${staffLimit} জন Staff রাখা যাবে।`,
+        });
+      }
     }
 
     const employee = await adminAuth.createUser({
@@ -535,3 +553,4 @@ router.post(
 );
 
 export default router;
+
