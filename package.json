@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test:security": "node --test tests/security/authIdentity.test.ts",
+    "test:security": "node --test tests/security/authIdentity.test.ts tests/security/cashSession.test.ts",
     "server": "npx tsx server/index.ts"
   },
   "dependencies": {
