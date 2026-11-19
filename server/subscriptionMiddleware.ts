@@ -25,8 +25,8 @@ function toDate(value: unknown): Date | null {
 }
 
 /**
- * Keep expired/suspended shops read-only. Legacy single-shop installs without
- * a shops/{shopId} record continue to work until they are migrated.
+ * Keep expired/suspended shops read-only. verifyUser provisions only the
+ * explicitly configured legacy shop before reaching this middleware.
  */
 export function enforceActiveSubscription(
   req: Request,
@@ -52,8 +52,13 @@ export function enforceActiveSubscription(
       const shopId = resolveShopId(authReq);
       const shopSnap = await adminDb.collection("shops").doc(shopId).get();
 
-      // Existing single-tenant shops may not have a shops document yet.
-      if (!shopSnap.exists) return next();
+      if (!shopSnap.exists) {
+        return res.status(403).json({
+          success: false,
+          code: "shop_membership_invalid",
+          message: "Shop membership could not be verified.",
+        });
+      }
 
       const shop = shopSnap.data() || {};
       const status =
