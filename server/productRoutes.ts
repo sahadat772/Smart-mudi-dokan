@@ -7,6 +7,7 @@ import {
   type AuthenticatedRequest,
 } from "./authMiddleware.js";
 import { resolveShopId } from "./shopContext.js";
+import { getShopPlanConfig } from "./planLimits.js";
 
 const router = Router();
 
@@ -238,6 +239,21 @@ router.post(
         },
       ];
 
+      const planConfig = await getShopPlanConfig(sid);
+      const productLimit = planConfig?.limits.products;
+      if (productLimit !== null && productLimit !== undefined) {
+        const currentProducts = await adminDb
+          .collection("products")
+          .where("shopId", "==", sid)
+          .get();
+        if (currentProducts.size + demos.length > productLimit) {
+          return res.status(409).json({
+            success: false,
+            message: `এই plan-এ সর্বোচ্চ ${productLimit}টি product রাখা যাবে।`,
+          });
+        }
+      }
+
       const batch = adminDb.batch();
       for (const item of demos) {
         const ref = adminDb.collection("products").doc();
@@ -273,6 +289,22 @@ router.post("/", requirePermission("products", "manage"), async (req, res) => {
     }
 
     const sid = resolveShopId(req as AuthenticatedRequest);
+
+    const planConfig = await getShopPlanConfig(sid);
+    const productLimit = planConfig?.limits.products;
+    if (productLimit !== null && productLimit !== undefined) {
+      const currentProducts = await adminDb
+        .collection("products")
+        .where("shopId", "==", sid)
+        .get();
+      if (currentProducts.size >= productLimit) {
+        return res.status(409).json({
+          success: false,
+          code: "product_limit_reached",
+          message: `এই plan-এ সর্বোচ্চ ${productLimit}টি product রাখা যাবে।`,
+        });
+      }
+    }
 
     const existingSku = await adminDb
       .collection("products")
@@ -416,3 +448,4 @@ router.delete(
 );
 
 export default router;
+
