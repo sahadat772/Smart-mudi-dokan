@@ -1,15 +1,16 @@
-import { randomUUID } from "node:crypto";
-import { Router, type Response } from "express";
+import { Router, type NextFunction, type Response } from "express";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "./firebaseAdmin.js";
 import {
   verifyOwner,
+  verifyUser,
   type AuthenticatedRequest,
 } from "./authMiddleware.js";
 
 const router = Router();
 type Plan = "basic" | "pro";
 type BillingCycle = "monthly" | "yearly";
+type PaymentMethod = "bkash" | "nagad" | "bank" | "cash";
 
 interface PlanOption {
   plan: Plan;
@@ -19,36 +20,9 @@ interface PlanOption {
   available: boolean;
 }
 
-interface ValidatedTransaction {
-  status?: string;
-  tran_id?: string;
-  val_id?: string;
-  amount?: string | number;
-  currency?: string;
-  currency_type?: string;
-  risk_level?: string | number;
-}
-
-function getGatewayConfig() {
-  const storeId = process.env.SSLCOMMERZ_STORE_ID?.trim();
-  const storePassword = process.env.SSLCOMMERZ_STORE_PASSWD?.trim();
-  const isSandbox =
-    (process.env.SSLCOMMERZ_IS_SANDBOX || "true").toLowerCase() !== "false";
-
-  return {
-    storeId,
-    storePassword,
-    isSandbox,
-    baseUrl: isSandbox
-      ? "https://sandbox.sslcommerz.com"
-      : "https://securepay.sslcommerz.com",
-  };
-}
-
 function configuredPrice(plan: Plan, cycle: BillingCycle): number | null {
-  const envKey =
-    `SSLCOMMERZ_${plan.toUpperCase()}_${cycle.toUpperCase()}_PRICE_BDT`;
-  const raw = process.env[envKey]?.trim();
+  const currentKey = `SUBSCRIPTION_${plan.toUpperCase()}_${cycle.toUpperCase()}_PRICE_BDT`;
+  const raw = process.env[currentKey]?.trim();
   if (!raw) return null;
   const amount = Number(raw);
   return Number.isFinite(amount) && amount > 0
@@ -71,6 +45,25 @@ function getPlanOptions(): PlanOption[] {
   );
 }
 
+function getPaymentMethods() {
+  const entries: Array<{
+    id: PaymentMethod;
+    label: string;
+    envKey: string;
+  }> = [
+    { id: "bkash", label: "বিকাশ", envKey: "MANUAL_PAYMENT_BKASH_INSTRUCTIONS" },
+    { id: "nagad", label: "নগদ", envKey: "MANUAL_PAYMENT_NAGAD_INSTRUCTIONS" },
+    { id: "bank", label: "ব্যাংক ট্রান্সফার", envKey: "MANUAL_PAYMENT_BANK_INSTRUCTIONS" },
+    { id: "cash", label: "নগদ টাকা", envKey: "MANUAL_PAYMENT_CASH_INSTRUCTIONS" },
+  ];
+  return entries.map(({ id, label, envKey }) => ({
+    id,
+    label,
+    instructions: process.env[envKey]?.trim() || "",
+    available: Boolean(process.env[envKey]?.trim()),
+  }));
+}
+
 function isPlan(value: unknown): value is Plan {
   return value === "basic" || value === "pro";
 }
@@ -79,19 +72,8 @@ function isBillingCycle(value: unknown): value is BillingCycle {
   return value === "monthly" || value === "yearly";
 }
 
-function normalizePublicUrl(envKey: string): string {
-  const raw = process.env[envKey]?.trim();
-  if (!raw) throw new Error(`${envKey} is not configured`);
-  const parsed = new URL(raw);
-  const isLocalhost =
-    parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
-  if (parsed.protocol !== "https:" && !(isLocalhost && parsed.protocol === "http:")) {
-    throw new Error(`${envKey} must use HTTPS outside localhost`);
-  }
-  if (parsed.username || parsed.password || parsed.search || parsed.hash) {
-    throw new Error(`${envKey} must be a base URL without credentials or query`);
-  }
-  return parsed.toString().replace(/\/$/, "");
+function isPaymentMethod(value: unknown): value is PaymentMethod {
+  return value === "bkash" || value === "nagad" || value === "bank" || value === "cash";
 }
 
 function addBillingCycle(start: Date, cycle: BillingCycle): Date {
@@ -119,368 +101,347 @@ function asDate(value: unknown): Date | null {
   return null;
 }
 
-function safeRedirectUrl(status: "success" | "failed" | "cancelled" | "review") {
-  return `${normalizePublicUrl("APP_PUBLIC_URL")}/?subscription=${status}`;
+function toIso(value: unknown): string | null {
+  return asDate(value)?.toISOString() || null;
 }
 
-function replyToGateway(res: Response, status: "success" | "failed" | "cancelled" | "review") {
-  try {
-    return res.redirect(303, safeRedirectUrl(status));
-  } catch {
-    return res.status(503).send("Payment return URL is not configured.");
-  }
-}
-
-async function validateWithGateway(valId: string): Promise<ValidatedTransaction> {
-  const config = getGatewayConfig();
-  if (!config.storeId || !config.storePassword) {
-    throw new Error("SSLCommerz credentials are not configured");
-  }
-
-  const url = new URL("/validator/api/validationserverAPI.php", config.baseUrl);
-  url.searchParams.set("val_id", valId);
-  url.searchParams.set("store_id", config.storeId);
-  url.searchParams.set("store_passwd", config.storePassword);
-  url.searchParams.set("v", "1");
-  url.searchParams.set("format", "json");
-
-  const response = await fetch(url, { signal: AbortSignal.timeout(20_000) });
-  if (!response.ok) throw new Error("SSLCommerz validation request failed");
-  return (await response.json()) as ValidatedTransaction;
-}
-
-async function markUnpaidTransaction(tranId: string, status: "failed" | "cancelled") {
-  if (!/^[A-Z0-9]{10,30}$/.test(tranId)) return;
-  const ref = adminDb.collection("subscriptionPayments").doc(tranId);
-  await adminDb.runTransaction(async (tx) => {
-    const snap = await tx.get(ref);
-    if (
-      !snap.exists ||
-      !["initiating", "pending"].includes(String(snap.data()?.status))
-    ) {
-      return;
-    }
-    tx.update(ref, {
-      status,
-      updatedAt: FieldValue.serverTimestamp(),
+function requirePlatformAdmin(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+) {
+  const allowedUids = (process.env.PLATFORM_ADMIN_UIDS || "")
+    .split(",")
+    .map((uid) => uid.trim())
+    .filter(Boolean);
+  if (!req.user || !allowedUids.includes(req.user.uid)) {
+    return res.status(403).json({
+      success: false,
+      message: "Platform admin access is required.",
     });
-  });
+  }
+  return next();
 }
 
-async function confirmPayment(tranId: string, valId: string) {
-  if (!/^[A-Z0-9]{10,30}$/.test(tranId) || !valId || valId.length > 80) {
-    return { outcome: "invalid" as const };
-  }
-
-  const paymentRef = adminDb.collection("subscriptionPayments").doc(tranId);
-  const paymentSnap = await paymentRef.get();
-  if (!paymentSnap.exists) return { outcome: "invalid" as const };
-  const payment = paymentSnap.data() || {};
-
-  if (payment.status === "paid") return { outcome: "success" as const };
-
-  const validated = await validateWithGateway(valId);
-  if (
-    (validated.status !== "VALID" && validated.status !== "VALIDATED") ||
-    validated.tran_id !== tranId
-  ) {
-    return { outcome: "invalid" as const };
-  }
-
-  const confirmedAmount = Number(validated.amount);
-  const amountMatches =
-    Number.isFinite(confirmedAmount) &&
-    Math.round(confirmedAmount * 100) === Math.round(Number(payment.amount) * 100);
-  const currency = validated.currency || validated.currency_type;
-  if (!amountMatches || currency !== "BDT") return { outcome: "invalid" as const };
-
-  if (String(validated.risk_level) === "1") {
-    await paymentRef.set(
-      {
-        status: "review_required",
-        valId,
-        riskLevel: 1,
-        updatedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true },
-    );
-    return { outcome: "review" as const };
-  }
-
-  if (!isPlan(payment.plan) || !isBillingCycle(payment.billingCycle)) {
-    return { outcome: "invalid" as const };
-  }
-
-  const shopRef = adminDb.collection("shops").doc(String(payment.shopId || ""));
-  const outcome = await adminDb.runTransaction(async (tx) => {
-    const [currentPayment, shopSnap] = await Promise.all([
-      tx.get(paymentRef),
-      tx.get(shopRef),
-    ]);
-    if (!currentPayment.exists || !shopSnap.exists) {
-      return "invalid" as const;
-    }
-    if (currentPayment.data()?.status === "paid") {
-      return "success" as const;
-    }
-    const shop = shopSnap.data() || {};
-    if (
-      shop.ownerUid !== payment.ownerUid ||
-      !Number.isFinite(Number(payment.amount))
-    ) {
-      return "invalid" as const;
-    }
-
-    const now = new Date();
-    const existingEnd = asDate(shop.subscriptionEndsAt);
-    const startsAt =
-      existingEnd && existingEnd.getTime() > now.getTime() ? existingEnd : now;
-    const endsAt = addBillingCycle(startsAt, payment.billingCycle);
-
-    tx.update(shopRef, {
-      plan: payment.plan,
-      status: "active",
-      subscriptionEndsAt: endsAt,
-      trialEndsAt: FieldValue.delete(),
-      lastPaymentId: tranId,
-      updatedAt: FieldValue.serverTimestamp(),
-    });
-    tx.update(paymentRef, {
-      status: "paid",
-      valId,
-      riskLevel: 0,
-      paidAt: FieldValue.serverTimestamp(),
-      subscriptionStartsAt: startsAt,
-      subscriptionEndsAt: endsAt,
-      updatedAt: FieldValue.serverTimestamp(),
-    });
-    return "success" as const;
-  });
-
-  return { outcome };
-}
-
-async function handleSuccess(req: AuthenticatedRequest, res: Response, isIpn = false) {
-  const body = req.body || {};
-  const tranId = typeof body.tran_id === "string" ? body.tran_id : "";
-  const valId = typeof body.val_id === "string" ? body.val_id : "";
-
-  try {
-    const { outcome } = await confirmPayment(tranId, valId);
-    if (outcome === "success") {
-      return isIpn ? res.status(200).send("OK") : replyToGateway(res, "success");
-    }
-    if (outcome === "review") {
-      return isIpn ? res.status(200).send("REVIEW") : replyToGateway(res, "review");
-    }
-    return isIpn
-      ? res.status(400).send("Invalid payment")
-      : replyToGateway(res, "failed");
-  } catch (error) {
-    console.error(
-      "Subscription payment validation failed:",
-      error instanceof Error ? error.name : "UnknownError",
-    );
-    return isIpn
-      ? res.status(503).send("Retry")
-      : replyToGateway(res, "failed");
-  }
+function toPaymentResponse(id: string, data: Record<string, any>) {
+  return {
+    id,
+    plan: data.plan,
+    billingCycle: data.billingCycle,
+    amount: Number(data.amount) || 0,
+    currency: data.currency || "BDT",
+    paymentMethod: data.paymentMethod,
+    paymentReference: data.paymentReference || "",
+    payerPhone: data.payerPhone || "",
+    status: data.status,
+    rejectionReason: data.rejectionReason || "",
+    shopId: data.shopId,
+    shopName: data.shopName || data.shopId,
+    ownerUid: data.ownerUid,
+    ownerName: data.ownerName || "",
+    ownerEmail: data.ownerEmail || "",
+    createdAt: toIso(data.createdAt),
+    reviewedAt: toIso(data.reviewedAt),
+  };
 }
 
 router.get("/plans", (_req, res) => {
-  const config = getGatewayConfig();
-  const credentialsAvailable = Boolean(config.storeId && config.storePassword);
-  const urlsAvailable = Boolean(
-    process.env.API_PUBLIC_URL?.trim() && process.env.APP_PUBLIC_URL?.trim(),
-  );
   return res.json({
     success: true,
-    plans: getPlanOptions().map((option) => ({
-      ...option,
-      available: option.available && credentialsAvailable && urlsAvailable,
-    })),
+    plans: getPlanOptions(),
+    paymentMethods: getPaymentMethods(),
   });
 });
 
-router.post("/sslcommerz/success", (req, res) =>
-  handleSuccess(req as AuthenticatedRequest, res),
-);
-router.post("/sslcommerz/ipn", (req, res) =>
-  handleSuccess(req as AuthenticatedRequest, res, true),
-);
-router.post("/sslcommerz/fail", async (req, res) => {
-  const tranId = typeof req.body?.tran_id === "string" ? req.body.tran_id : "";
-  try {
-    await markUnpaidTransaction(tranId, "failed");
-  } catch (error) {
-    console.error("Failed to update failed payment:", error);
-  }
-  return replyToGateway(res, "failed");
-});
-router.post("/sslcommerz/cancel", async (req, res) => {
-  const tranId = typeof req.body?.tran_id === "string" ? req.body.tran_id : "";
-  try {
-    await markUnpaidTransaction(tranId, "cancelled");
-  } catch (error) {
-    console.error("Failed to update cancelled payment:", error);
-  }
-  return replyToGateway(res, "cancelled");
-});
-
-router.post("/checkout", verifyOwner, async (req: AuthenticatedRequest, res) => {
+/** Submit a manual payment for an owner-configured plan; the amount is server-set. */
+router.post("/manual-payment", verifyOwner, async (req: AuthenticatedRequest, res) => {
   const user = req.user!;
-  const plan = req.body?.plan;
-  const cycle = req.body?.cycle;
-  if (!isPlan(plan) || !isBillingCycle(cycle)) {
+  const { plan, cycle, method } = req.body || {};
+  const paymentReference =
+    typeof req.body?.paymentReference === "string"
+      ? req.body.paymentReference.trim().slice(0, 120)
+      : "";
+  const payerPhone =
+    typeof req.body?.payerPhone === "string"
+      ? req.body.payerPhone.trim().slice(0, 30)
+      : "";
+
+  if (!isPlan(plan) || !isBillingCycle(cycle) || !isPaymentMethod(method)) {
     return res.status(400).json({
       success: false,
-      message: "সঠিক plan ও billing cycle নির্বাচন করুন।",
+      message: "সঠিক plan, মেয়াদ ও payment method নির্বাচন করুন।",
     });
   }
-
-  const amount = configuredPrice(plan, cycle);
-  const config = getGatewayConfig();
-  if (
-    !amount ||
-    !config.storeId ||
-    !config.storePassword ||
-    !process.env.API_PUBLIC_URL ||
-    !process.env.APP_PUBLIC_URL
-  ) {
+  const price = configuredPrice(plan, cycle);
+  if (!price) {
     return res.status(503).json({
       success: false,
-      message: "অনলাইন পেমেন্ট চালু নেই। অ্যাডমিনের সাথে যোগাযোগ করুন।",
+      message: "এই plan-এর মূল্য এখনো নির্ধারণ করা হয়নি। অ্যাডমিনের সাথে যোগাযোগ করুন।",
+    });
+  }
+  const paymentMethod = getPaymentMethods().find((item) => item.id === method);
+  if (!paymentMethod?.available) {
+    return res.status(503).json({
+      success: false,
+      message: "এই payment method-এর নির্দেশনা এখনো দেওয়া হয়নি।",
+    });
+  }
+  if (method !== "cash" && !paymentReference) {
+    return res.status(400).json({
+      success: false,
+      message: "Transaction ID বা payment reference লিখুন।",
     });
   }
 
-  const phone =
-    typeof req.body?.phone === "string" ? req.body.phone.trim() : "";
-  const address =
-    typeof req.body?.address === "string" ? req.body.address.trim() : "";
-  const city = typeof req.body?.city === "string" ? req.body.city.trim() : "";
-  const postcode =
-    typeof req.body?.postcode === "string" ? req.body.postcode.trim() : "";
-  if (!phone || !address || !city || !postcode) {
-    return res.status(400).json({
+  const shopId = user.shopId;
+  if (!shopId) {
+    return res.status(403).json({
       success: false,
-      message: "পেমেন্টের জন্য ফোন, ঠিকানা, শহর ও পোস্টকোড দিন।",
+      message: "এই account-এর সাথে shop যুক্ত নেই।",
     });
   }
 
   try {
-    const shopId = user.shopId;
-    if (!shopId) {
-      return res.status(403).json({
-        success: false,
-        message: "এই অ্যাকাউন্টের সাথে দোকান যুক্ত নেই।",
-      });
-    }
     const shopRef = adminDb.collection("shops").doc(shopId);
-    const shopSnap = await shopRef.get();
-    if (!shopSnap.exists || shopSnap.data()?.ownerUid !== user.uid) {
-      return res.status(403).json({
-        success: false,
-        message: "দোকানের সাবস্ক্রিপশন মালিকের অ্যাকাউন্ট থেকেই চালু করতে হবে।",
+    const paymentRef = adminDb.collection("subscriptionPayments").doc();
+    const submitted = await adminDb.runTransaction(async (tx) => {
+      const shopSnap = await tx.get(shopRef);
+      if (!shopSnap.exists || shopSnap.data()?.ownerUid !== user.uid) {
+        return "not_owner" as const;
+      }
+
+      const pendingId = shopSnap.data()?.pendingManualPaymentId;
+      if (typeof pendingId === "string" && pendingId) {
+        const pendingRef = adminDb.collection("subscriptionPayments").doc(pendingId);
+        const pendingSnap = await tx.get(pendingRef);
+        if (pendingSnap.exists && pendingSnap.data()?.status === "pending_review") {
+          return "already_pending" as const;
+        }
+      }
+
+      tx.create(paymentRef, {
+        shopId,
+        shopName: shopSnap.data()?.name || process.env.SHOP_NAME || shopId,
+        ownerUid: user.uid,
+        ownerName: user.displayName || "",
+        ownerEmail: user.email || "",
+        plan,
+        billingCycle: cycle,
+        amount: price,
+        currency: "BDT",
+        provider: "manual",
+        paymentMethod: method,
+        paymentReference: paymentReference || (method === "cash" ? "Cash payment" : ""),
+        payerPhone,
+        status: "pending_review",
+        createdAt: FieldValue.serverTimestamp(),
       });
-    }
-
-    const apiUrl = normalizePublicUrl("API_PUBLIC_URL");
-    const tranId = `SM${Date.now().toString(36).toUpperCase()}${randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase()}`;
-    const paymentRef = adminDb
-      .collection("subscriptionPayments")
-      .doc(tranId);
-    await paymentRef.set({
-      tranId,
-      shopId,
-      ownerUid: user.uid,
-      plan,
-      billingCycle: cycle,
-      amount,
-      currency: "BDT",
-      provider: "sslcommerz",
-      status: "initiating",
-      createdAt: FieldValue.serverTimestamp(),
-    });
-
-    const form = new URLSearchParams({
-      store_id: config.storeId!,
-      store_passwd: config.storePassword!,
-      total_amount: amount.toFixed(2),
-      currency: "BDT",
-      tran_id: tranId,
-      success_url: `${apiUrl}/api/subscriptions/sslcommerz/success`,
-      fail_url: `${apiUrl}/api/subscriptions/sslcommerz/fail`,
-      cancel_url: `${apiUrl}/api/subscriptions/sslcommerz/cancel`,
-      ipn_url: `${apiUrl}/api/subscriptions/sslcommerz/ipn`,
-      cus_name: (user.displayName || user.email || "Shop owner").slice(0, 60),
-      cus_email: (user.email || "").slice(0, 80),
-      cus_phone: phone.slice(0, 20),
-      cus_add1: address.slice(0, 50),
-      cus_city: city.slice(0, 50),
-      cus_postcode: postcode.slice(0, 10),
-      cus_country: "Bangladesh",
-      shipping_method: "NO",
-      num_of_item: "1",
-      product_name: `Smart Mudi ${plan} ${cycle} subscription`,
-      product_category: "Software",
-      product_profile: "non-physical-goods",
-    });
-
-    const response = await fetch(
-      `${config.baseUrl}/gwprocess/v4/api.php`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: form,
-        signal: AbortSignal.timeout(20_000),
-      },
-    );
-    if (!response.ok) throw new Error("SSLCommerz session request failed");
-    const session = (await response.json()) as {
-      status?: string;
-      sessionkey?: string;
-      GatewayPageURL?: string;
-    };
-    const paymentUrl = session.GatewayPageURL
-      ? new URL(session.GatewayPageURL)
-      : null;
-    if (
-      session.status !== "SUCCESS" ||
-      !session.sessionkey ||
-      !paymentUrl ||
-      paymentUrl.protocol !== "https:" ||
-      paymentUrl.hostname !==
-        (config.isSandbox ? "sandbox.sslcommerz.com" : "securepay.sslcommerz.com")
-    ) {
-      await paymentRef.update({
-        status: "initiation_failed",
+      tx.update(shopRef, {
+        pendingManualPaymentId: paymentRef.id,
         updatedAt: FieldValue.serverTimestamp(),
       });
-      return res.status(502).json({
+      return "created" as const;
+    });
+
+    if (submitted === "not_owner") {
+      return res.status(403).json({
         success: false,
-        message: "পেমেন্ট সেশন তৈরি হয়নি। পরে আবার চেষ্টা করুন।",
+        message: "শুধু shop owner payment request করতে পারবেন।",
       });
     }
-
-    await paymentRef.update({
-      status: "pending",
-      sessionKey: session.sessionkey,
-      updatedAt: FieldValue.serverTimestamp(),
-    });
-    return res.json({
+    if (submitted === "already_pending") {
+      return res.status(409).json({
+        success: false,
+        message: "আপনার একটি payment request admin review-এ আছে।",
+      });
+    }
+    return res.status(201).json({
       success: true,
-      paymentUrl: paymentUrl.toString(),
+      requestId: paymentRef.id,
+      message: "Payment request জমা হয়েছে। Admin যাচাই করে plan চালু করবেন।",
     });
   } catch (error) {
     console.error(
-      "Subscription checkout failed:",
+      "Manual subscription request failed:",
       error instanceof Error ? error.name : "UnknownError",
     );
-    return res.status(502).json({
+    return res.status(500).json({
       success: false,
-      message: "পেমেন্ট চালু করা যায়নি। একটু পরে আবার চেষ্টা করুন।",
+      message: "Payment request জমা হয়নি। পরে আবার চেষ্টা করুন।",
     });
   }
 });
 
+router.get("/payments", verifyOwner, async (req: AuthenticatedRequest, res) => {
+  try {
+    const shopId = req.user!.shopId;
+    if (!shopId) return res.status(403).json({ success: false });
+    const snapshot = await adminDb
+      .collection("subscriptionPayments")
+      .where("shopId", "==", shopId)
+      .limit(100)
+      .get();
+    const payments = snapshot.docs
+      .map((item) => toPaymentResponse(item.id, item.data()))
+      .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+    return res.json({ success: true, payments });
+  } catch (error) {
+    console.error("Subscription history load failed:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Payment history লোড করা যায়নি।",
+    });
+  }
+});
+
+router.get("/admin/me", verifyUser, requirePlatformAdmin, (_req, res) =>
+  res.json({ success: true, isPlatformAdmin: true }),
+);
+
+router.get(
+  "/admin/manual-payments",
+  verifyUser,
+  requirePlatformAdmin,
+  async (_req, res) => {
+    try {
+      const snapshot = await adminDb
+        .collection("subscriptionPayments")
+        .where("status", "==", "pending_review")
+        .get();
+      const requests = snapshot.docs
+        .map((item) => toPaymentResponse(item.id, item.data()))
+        .sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
+      return res.json({ success: true, requests });
+    } catch (error) {
+      console.error("Pending manual payments load failed:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Pending payment request লোড করা যায়নি।",
+      });
+    }
+  },
+);
+
+router.post(
+  "/admin/manual-payments/:id/approve",
+  verifyUser,
+  requirePlatformAdmin,
+  async (req: AuthenticatedRequest, res) => {
+    const paymentRef = adminDb
+      .collection("subscriptionPayments")
+      .doc(req.params.id);
+    try {
+      const outcome = await adminDb.runTransaction(async (tx) => {
+        const paymentSnap = await tx.get(paymentRef);
+        if (!paymentSnap.exists) return "not_found" as const;
+        const payment = paymentSnap.data() || {};
+        if (payment.status !== "pending_review") {
+          return payment.status === "approved"
+            ? ("already_approved" as const)
+            : ("not_pending" as const);
+        }
+        if (!isPlan(payment.plan) || !isBillingCycle(payment.billingCycle)) {
+          return "invalid" as const;
+        }
+
+        const shopRef = adminDb.collection("shops").doc(String(payment.shopId || ""));
+        const shopSnap = await tx.get(shopRef);
+        if (
+          !shopSnap.exists ||
+          shopSnap.data()?.ownerUid !== payment.ownerUid ||
+          !Number.isFinite(Number(payment.amount))
+        ) {
+          return "invalid" as const;
+        }
+
+        const now = new Date();
+        const existingEnd = asDate(shopSnap.data()?.subscriptionEndsAt);
+        const startsAt =
+          existingEnd && existingEnd.getTime() > now.getTime() ? existingEnd : now;
+        const endsAt = addBillingCycle(startsAt, payment.billingCycle);
+        tx.update(shopRef, {
+          plan: payment.plan,
+          status: "active",
+          subscriptionEndsAt: endsAt,
+          trialEndsAt: FieldValue.delete(),
+          lastPaymentId: paymentRef.id,
+          ...(shopSnap.data()?.pendingManualPaymentId === paymentRef.id
+            ? { pendingManualPaymentId: FieldValue.delete() }
+            : {}),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        tx.update(paymentRef, {
+          status: "approved",
+          reviewedByUid: req.user!.uid,
+          reviewedAt: FieldValue.serverTimestamp(),
+          subscriptionStartsAt: startsAt,
+          subscriptionEndsAt: endsAt,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        return "approved" as const;
+      });
+
+      if (outcome === "not_found") return res.status(404).json({ success: false });
+      if (outcome === "already_approved") return res.json({ success: true, alreadyApproved: true });
+      if (outcome !== "approved") {
+        return res.status(409).json({
+          success: false,
+          message: "এই request approve করা যাচ্ছে না। তথ্য যাচাই করুন।",
+        });
+      }
+      return res.json({ success: true, message: "Payment approve হয়েছে; plan চালু হয়েছে।" });
+    } catch (error) {
+      console.error("Manual payment approval failed:", error);
+      return res.status(500).json({ success: false, message: "Payment approve হয়নি।" });
+    }
+  },
+);
+
+router.post(
+  "/admin/manual-payments/:id/reject",
+  verifyUser,
+  requirePlatformAdmin,
+  async (req: AuthenticatedRequest, res) => {
+    const paymentRef = adminDb
+      .collection("subscriptionPayments")
+      .doc(req.params.id);
+    const reason =
+      typeof req.body?.reason === "string" ? req.body.reason.trim().slice(0, 300) : "";
+    try {
+      const outcome = await adminDb.runTransaction(async (tx) => {
+        const paymentSnap = await tx.get(paymentRef);
+        if (!paymentSnap.exists) return "not_found" as const;
+        const payment = paymentSnap.data() || {};
+        if (payment.status !== "pending_review") return "not_pending" as const;
+        const shopRef = adminDb.collection("shops").doc(String(payment.shopId || ""));
+        const shopSnap = await tx.get(shopRef);
+        if (!shopSnap.exists) return "invalid" as const;
+        tx.update(paymentRef, {
+          status: "rejected",
+          rejectionReason: reason,
+          reviewedByUid: req.user!.uid,
+          reviewedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        if (shopSnap.data()?.pendingManualPaymentId === paymentRef.id) {
+          tx.update(shopRef, {
+            pendingManualPaymentId: FieldValue.delete(),
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        }
+        return "rejected" as const;
+      });
+      if (outcome === "not_found") return res.status(404).json({ success: false });
+      if (outcome !== "rejected") {
+        return res.status(409).json({ success: false, message: "এই request আর pending নেই।" });
+      }
+      return res.json({ success: true, message: "Payment request reject করা হয়েছে।" });
+    } catch (error) {
+      console.error("Manual payment rejection failed:", error);
+      return res.status(500).json({ success: false, message: "Payment reject করা যায়নি।" });
+    }
+  },
+);
+
 export default router;
+
