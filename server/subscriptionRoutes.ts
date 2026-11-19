@@ -6,9 +6,14 @@ import {
   verifyUser,
   type AuthenticatedRequest,
 } from "./authMiddleware.js";
+import {
+  isSubscriptionPlanId,
+  SUBSCRIPTION_PLANS,
+  type SubscriptionPlanId,
+} from "../shared/subscriptionPlans.js";
 
 const router = Router();
-type Plan = "basic" | "pro";
+type Plan = SubscriptionPlanId;
 type BillingCycle = "monthly" | "yearly";
 type PaymentMethod = "bkash" | "nagad" | "bank" | "cash";
 
@@ -18,6 +23,10 @@ interface PlanOption {
   amount: number;
   currency: "BDT";
   available: boolean;
+  displayName: string;
+  description: string;
+  limits: (typeof SUBSCRIPTION_PLANS)[Plan]["limits"];
+  features: readonly string[];
 }
 
 function configuredPrice(plan: Plan, cycle: BillingCycle): number | null {
@@ -40,6 +49,7 @@ function getPlanOptions(): PlanOption[] {
         amount: amount || 0,
         currency: "BDT" as const,
         available: amount !== null,
+        ...SUBSCRIPTION_PLANS[plan],
       };
     }),
   );
@@ -65,7 +75,7 @@ function getPaymentMethods() {
 }
 
 function isPlan(value: unknown): value is Plan {
-  return value === "basic" || value === "pro";
+  return isSubscriptionPlanId(value);
 }
 
 function isBillingCycle(value: unknown): value is BillingCycle {
