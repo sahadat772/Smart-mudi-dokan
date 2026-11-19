@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import { adminAuth, adminDb } from "./firebaseAdmin.js";
+import { authClaimsMatchProfile } from "./authIdentity.js";
 
 export type ModuleKey =
   | "dashboard"
@@ -105,20 +106,8 @@ export async function verifyUser(
       });
     }
 
-    // Prefer custom claims when present (set at staff creation / owner bootstrap).
-    const claimRole = decodedToken.role as string | undefined;
-    if (claimRole === "owner" || claimRole === "employee") {
-      authUser.role = claimRole;
-    }
-    if (
-      typeof decodedToken.shopId === "string" &&
-      decodedToken.shopId.trim()
-    ) {
-      authUser.shopId = decodedToken.shopId.trim();
-    }
-
     // Recover a legacy owner binding from a shop record that already names this
-    // UID. This does not grant a shop to employees or trust a request body.
+    // UID. This does not grant a shop to employees or trust token claims/body.
     if (!authUser.shopId && authUser.role === "owner") {
       const ownedShops = await adminDb
         .collection("shops")
@@ -166,6 +155,16 @@ export async function verifyUser(
       return res.status(403).json({
         success: false,
         message: "Shop is not linked to this account.",
+      });
+    }
+
+    // Profile role and shop association are authoritative. Missing custom
+    // claims remain compatible with older sessions; contradictory claims fail
+    // closed instead of elevating a role or switching tenant context.
+    if (!authClaimsMatchProfile(authUser, decodedToken)) {
+      return res.status(403).json({
+        success: false,
+        message: "Account access information is inconsistent. Sign in again or contact support.",
       });
     }
 
@@ -253,3 +252,4 @@ export function requirePermission(
     next();
   };
 }
+
