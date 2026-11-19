@@ -12,6 +12,11 @@ import {
   type AuthenticatedRequest,
 } from "./authMiddleware.js";
 import { resolveShopId } from "./shopContext.js";
+import {
+  closeCashSessionInTransaction,
+  ensureCashSessionInTransaction,
+  updateCashSessionInTransaction,
+} from "./cashSessionTransactions.js";
 
 const router = Router();
 
@@ -169,44 +174,16 @@ router.get("/today", requirePermission("cash", "view"), async (req, res) => {
     const date = getTodayDhakaDateKey();
     const docId = `${sid}_${date}`;
     const ref = adminDb.collection("cashSessions").doc(docId);
-    const snap = await ref.get();
-
-    let stored: Record<string, any>;
-
-    if (!snap.exists) {
-      // Carry forward previous actual closing as opening if available
-      let openingCash = 0;
-      const prevDate = addDateKeyDays(date, -1);
-      const prevSnap = await adminDb
-        .collection("cashSessions")
-        .doc(`${sid}_${prevDate}`)
-        .get();
-
-      if (prevSnap.exists) {
-        const prev = prevSnap.data() || {};
-        if (prev.actualClosingCash != null) {
-          openingCash = Number(prev.actualClosingCash) || 0;
-        } else {
-          openingCash = Number(prev.openingCash) || 0;
-        }
-      }
-
-      stored = {
+    const previousDate = addDateKeyDays(date, -1);
+    const previousRef = adminDb.collection("cashSessions").doc(`${sid}_${previousDate}`);
+    const stored = await adminDb.runTransaction((tx) =>
+      ensureCashSessionInTransaction(tx, ref, previousRef, {
         shopId: sid,
         date,
-        openingCash,
-        bKashBalance: Number(prevSnap.data()?.bKashBalance) || 0,
-        nagadBalance: Number(prevSnap.data()?.nagadBalance) || 0,
-        bankBalance: Number(prevSnap.data()?.bankBalance) || 0,
-        isClosed: false,
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
-      };
-
-      await ref.set(stored);
-    } else {
-      stored = snap.data() || {};
-    }
+      }),
+    );
 
     const computed = await computeCashTotals(date, sid);
     return res.json({
@@ -232,19 +209,12 @@ router.patch(
       const date = getTodayDhakaDateKey();
       const docId = `${sid}_${date}`;
       const ref = adminDb.collection("cashSessions").doc(docId);
-      const snap = await ref.get();
-
-      if (snap.exists && snap.data()?.isClosed === true) {
-        return res.status(400).json({
-          success: false,
-          message: "Today's cash session is already closed.",
-        });
-      }
 
       const body = req.body || {};
       const updates: Record<string, any> = {
         shopId: sid,
         date,
+        createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       };
 
@@ -276,27 +246,22 @@ router.patch(
         }
       }
 
-      if (!snap.exists) {
-        await ref.set({
-          openingCash: 0,
-          bKashBalance: 0,
-          nagadBalance: 0,
-          bankBalance: 0,
-          isClosed: false,
-          createdAt: FieldValue.serverTimestamp(),
-          ...updates,
+      const outcome = await adminDb.runTransaction((tx) =>
+        updateCashSessionInTransaction(tx, ref, updates),
+      );
+      if (outcome.closed) {
+        return res.status(400).json({
+          success: false,
+          message: "Today's cash session is already closed.",
         });
-      } else {
-        await ref.set(updates, { merge: true });
       }
 
-      const fresh = (await ref.get()).data() || {};
       const computed = await computeCashTotals(date, sid);
 
       return res.json({
         success: true,
         message: "Cash session updated.",
-        session: mapSession(date, fresh, computed),
+        session: mapSession(date, outcome.session || {}, computed),
       });
     } catch (error) {
       console.error("Update cash session failed:", error);
@@ -319,14 +284,6 @@ router.post(
       const date = getTodayDhakaDateKey();
       const docId = `${sid}_${date}`;
       const ref = adminDb.collection("cashSessions").doc(docId);
-      const snap = await ref.get();
-
-      if (snap.exists && snap.data()?.isClosed === true) {
-        return res.status(400).json({
-          success: false,
-          message: "Already closed for today.",
-        });
-      }
 
       const actualClosingCash = Number(req.body?.actualClosingCash);
       if (!Number.isFinite(actualClosingCash) || actualClosingCash < 0) {
@@ -337,52 +294,50 @@ router.post(
       }
 
       const computed = await computeCashTotals(date, sid);
-      const stored = snap.exists
-        ? snap.data() || {}
-        : { openingCash: 0, bKashBalance: 0, nagadBalance: 0, bankBalance: 0 };
-
-      const openingCash = Number(stored.openingCash) || 0;
-      const expectedClosingCash =
-        openingCash +
-        computed.cashSales +
-        computed.cashDueCollected -
-        computed.cashExpenses -
-        computed.cashSupplierPaid;
-
-      const discrepancy = actualClosingCash - expectedClosingCash;
 
       const closedBy =
         authReq.user?.displayName ||
         authReq.user?.email ||
         (authReq.user?.role === "owner" ? "Owner" : "Employee");
 
-      await ref.set(
-        {
-          shopId: sid,
-          date,
-          openingCash,
-          bKashBalance: Number(stored.bKashBalance) || 0,
-          nagadBalance: Number(stored.nagadBalance) || 0,
-          bankBalance: Number(stored.bankBalance) || 0,
-          actualClosingCash,
-          expectedClosingCash,
-          discrepancy,
-          isClosed: true,
-          closedAt: FieldValue.serverTimestamp(),
-          closedBy,
-          closedByUid: authReq.user?.uid,
-          updatedAt: FieldValue.serverTimestamp(),
-          createdAt: stored.createdAt || FieldValue.serverTimestamp(),
-        },
-        { merge: true },
+      const outcome = await adminDb.runTransaction((tx) =>
+        closeCashSessionInTransaction(tx, ref, (stored) => {
+          const openingCash = Number(stored.openingCash) || 0;
+          const expectedClosingCash =
+            openingCash +
+            computed.cashSales +
+            computed.cashDueCollected -
+            computed.cashExpenses -
+            computed.cashSupplierPaid;
+          return {
+            shopId: sid,
+            date,
+            openingCash,
+            bKashBalance: Number(stored.bKashBalance) || 0,
+            nagadBalance: Number(stored.nagadBalance) || 0,
+            bankBalance: Number(stored.bankBalance) || 0,
+            actualClosingCash,
+            expectedClosingCash,
+            discrepancy: actualClosingCash - expectedClosingCash,
+            closedAt: FieldValue.serverTimestamp(),
+            closedBy,
+            closedByUid: authReq.user?.uid,
+            updatedAt: FieldValue.serverTimestamp(),
+            createdAt: stored.createdAt || FieldValue.serverTimestamp(),
+          };
+        }),
       );
-
-      const fresh = (await ref.get()).data() || {};
+      if (outcome.alreadyClosed) {
+        return res.status(400).json({
+          success: false,
+          message: "Already closed for today.",
+        });
+      }
 
       return res.json({
         success: true,
         message: "Cash session closed.",
-        session: mapSession(date, fresh, computed),
+        session: mapSession(date, outcome.session || {}, computed),
       });
     } catch (error) {
       console.error("Close cash session failed:", error);
@@ -395,3 +350,4 @@ router.post(
 );
 
 export default router;
+
