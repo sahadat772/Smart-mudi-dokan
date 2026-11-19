@@ -8,6 +8,7 @@ import {
 } from "./authMiddleware.js";
 import { resolveShopId } from "./shopContext.js";
 import { getShopPlanConfig } from "./planLimits.js";
+import { canBackfillLegacyEmployee } from "./shopMembership.js";
 
 const router = Router();
 
@@ -123,14 +124,34 @@ function validatePermissions(value: unknown): PermissionSet | null {
   return result;
 }
 
-function storedShopId(data: Record<string, any>) {
+async function resolveEmployeeShopId(uid: string, data: Record<string, any>) {
   if (typeof data.shopId === "string" && data.shopId.trim()) {
     return data.shopId.trim();
   }
-  if (process.env.LEGACY_SINGLE_TENANT_MODE === "true") {
-    return process.env.SHOP_ID?.trim() || "";
+
+  const legacy = {
+    ownerUid: process.env.OWNER_UID?.trim(),
+    shopId: process.env.SHOP_ID?.trim(),
+    enabled: process.env.LEGACY_SINGLE_TENANT_MODE === "true",
+  };
+  if (!legacy.enabled || !legacy.shopId || data.role !== "employee") return "";
+
+  try {
+    const authRecord = await adminAuth.getUser(uid);
+    const principal = { uid, role: "employee" as const };
+    if (!canBackfillLegacyEmployee(principal, authRecord.customClaims || {}, legacy)) {
+      return "";
+    }
+
+    await adminDb.collection("users").doc(uid).set(
+      { shopId: legacy.shopId, shopIdBackfilledAt: FieldValue.serverTimestamp() },
+      { merge: true },
+    );
+    return legacy.shopId;
+  } catch (error) {
+    console.error("Legacy employee membership backfill failed:", error);
+    return "";
   }
-  return "";
 }
 
 function formatLastLogin(value: unknown): string {
@@ -157,9 +178,9 @@ router.get("/", verifyOwner, async (req, res) => {
         ? await employeesQuery.get()
         : await employeesQuery.where("shopId", "==", sid).get();
 
-    const employees = snapshot.docs
-      .map((docSnap) => {
+    const resolvedEmployees = await Promise.all(snapshot.docs.map(async (docSnap) => {
         const data = docSnap.data();
+        const shopId = await resolveEmployeeShopId(docSnap.id, data);
         return {
           uid: docSnap.id,
           name: data.displayName || "Unnamed Employee",
@@ -167,12 +188,12 @@ router.get("/", verifyOwner, async (req, res) => {
           jobRole: data.jobRole || "custom",
           active: data.active === true,
           mustChangePassword: data.mustChangePassword === true,
-          shopId: storedShopId(data),
+          shopId,
           permissions: data.permissions || emptyPermissions(),
           lastLoginAt: formatLastLogin(data.lastLoginAt),
         };
-      })
-      .filter((emp) => emp.shopId === sid);
+      }));
+    const employees = resolvedEmployees.filter((emp) => emp.shopId === sid);
 
     return res.json({
       success: true,
@@ -391,7 +412,7 @@ router.patch("/:uid/status", verifyOwner, async (req, res) => {
     if (
       !userSnap.exists ||
       employeeData.role !== "employee" ||
-      storedShopId(employeeData) !== sid
+      (await resolveEmployeeShopId(uid, employeeData)) !== sid
     ) {
       return res.status(404).json({
         success: false,
@@ -451,7 +472,7 @@ router.patch("/:uid/permissions", verifyOwner, async (req, res) => {
     if (
       !userSnap.exists ||
       employeeData.role !== "employee" ||
-      storedShopId(employeeData) !== sid
+      (await resolveEmployeeShopId(uid, employeeData)) !== sid
     ) {
       return res.status(404).json({
         success: false,
