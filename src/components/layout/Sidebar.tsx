@@ -15,6 +15,7 @@ import {
   UserRound,
   Sparkles,
   CreditCard,
+  ClipboardCheck,
 } from "lucide-react";
 import { UserRole } from "../../types";
 
@@ -30,6 +31,7 @@ export type NavPageId =
   | "staff"
   | "settings"
   | "subscription"
+  | "platform-admin"
   | "login"
   | "change-password";
 
@@ -45,6 +47,7 @@ interface SidebarProps {
   onCloseMobile: () => void;
   currentRole: UserRole;
   lowStockCount: number;
+  isPlatformAdmin?: boolean;
   permissions?: Record<string, ModulePermission>;
 }
 
@@ -54,6 +57,7 @@ interface NavItem {
   sublabel: string;
   icon: React.ComponentType<{ className?: string }>;
   ownerOnly?: boolean;
+  platformAdminOnly?: boolean;
 }
 
 interface NavGroup {
@@ -68,6 +72,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCloseMobile,
   currentRole,
   lowStockCount,
+  isPlatformAdmin = false,
   permissions,
 }) => {
   const navGroups: NavGroup[] = [
@@ -161,10 +166,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
         },
       ],
     },
+    ...(isPlatformAdmin
+      ? [{
+          title: "প্ল্যাটফর্ম",
+          items: [
+            {
+              id: "platform-admin" as const,
+              label: "Payment approvals",
+              sublabel: "Manual subscription request",
+              icon: ClipboardCheck,
+              platformAdminOnly: true,
+            },
+          ],
+        }]
+      : []),
   ];
 
   const isOwner = currentRole === "owner";
   const hasViewAccess = (pageId: NavPageId): boolean => {
+    if (pageId === "platform-admin") return isPlatformAdmin;
     if (isOwner) return true;
     if (pageId === "staff" || pageId === "settings" || pageId === "login") {
       return false;
@@ -178,6 +198,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       .find((item) => item.id === pageId);
 
     if (selectedItem?.ownerOnly && !isOwner) return;
+    if (selectedItem?.platformAdminOnly && !isPlatformAdmin) return;
     onNavigate(pageId);
     onCloseMobile();
   };
@@ -313,3 +334,4 @@ export const Sidebar: React.FC<SidebarProps> = ({
     </>
   );
 };
+
