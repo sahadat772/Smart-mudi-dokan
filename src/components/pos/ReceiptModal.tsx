@@ -111,8 +111,12 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             <h2 className="text-base font-bold text-slate-950 font-sans tracking-tight">
               {shopSettings.shopName}
             </h2>
-            <p className="text-[11px] text-slate-600 font-sans">{shopSettings.tagline}</p>
-            <p className="text-[11px] text-slate-500 font-sans">{shopSettings.address}</p>
+            <p className="text-[11px] text-slate-600 font-sans">
+              {shopSettings.tagline}
+            </p>
+            <p className="text-[11px] text-slate-500 font-sans">
+              {shopSettings.address}
+            </p>
             <p className="text-[11px] text-slate-700">
               মোবাইল: <span className="tabular-nums">{shopSettings.phone}</span>
             </p>
@@ -126,7 +130,9 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
           <div className="py-2.5 border-b border-dashed border-slate-300 space-y-1 text-[11px]">
             <div className="flex justify-between">
               <span className="text-slate-500">মেমো নং:</span>
-              <span className="font-bold text-slate-900 tabular-nums">{sale.invoiceNo}</span>
+              <span className="font-bold text-slate-900 tabular-nums">
+                {sale.invoiceNo}
+              </span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-500">তারিখ ও সময়:</span>
@@ -139,7 +145,9 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             {sale.customerName && (
               <div className="flex justify-between font-sans">
                 <span className="text-slate-500">গ্রাহক:</span>
-                <span className="font-medium text-slate-900">{sale.customerName}</span>
+                <span className="font-medium text-slate-900">
+                  {sale.customerName}
+                </span>
               </div>
             )}
             {sale.customerPhone && (
@@ -186,17 +194,23 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
           <div className="py-2.5 border-b border-dashed border-slate-300 space-y-1 text-[11px]">
             <div className="flex justify-between">
               <span className="text-slate-500">সাব-টোটাল:</span>
-              <span className="tabular-nums font-medium">{formatMoney(sale.subtotal)}</span>
+              <span className="tabular-nums font-medium">
+                {formatMoney(sale.subtotal)}
+              </span>
             </div>
             {sale.discount > 0 && (
               <div className="flex justify-between text-emerald-700">
                 <span>ছাড় (ডিসকাউন্ট):</span>
-                <span className="tabular-nums font-medium">-{formatMoney(sale.discount)}</span>
+                <span className="tabular-nums font-medium">
+                  -{formatMoney(sale.discount)}
+                </span>
               </div>
             )}
             <div className="flex justify-between text-sm font-bold text-slate-950 pt-1 border-t border-slate-200">
               <span>সর্বমোট প্রদেয়:</span>
-              <span className="tabular-nums">{formatMoney(sale.grandTotal)}</span>
+              <span className="tabular-nums">
+                {formatMoney(sale.grandTotal)}
+              </span>
             </div>
             <div className="flex justify-between text-slate-800">
               <span>পরিশোধিত:</span>
@@ -207,20 +221,26 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             {sale.dueAmount > 0 && (
               <div className="flex justify-between text-rose-700 font-bold">
                 <span>বকেয়া (বাকি):</span>
-                <span className="tabular-nums">{formatMoney(sale.dueAmount)}</span>
+                <span className="tabular-nums">
+                  {formatMoney(sale.dueAmount)}
+                </span>
               </div>
             )}
 
             <div className="pt-1 text-[10px] text-slate-500 flex justify-between gap-2">
               <span>পেমেন্ট মাধ্যম:</span>
               <span className="text-right">
-                {sale.payments.map((p) => `${p.method} (${formatMoney(p.amount)})`).join(", ")}
+                {sale.payments
+                  .map((p) => `${p.method} (${formatMoney(p.amount)})`)
+                  .join(", ")}
               </span>
             </div>
           </div>
 
           <div className="pt-3 pb-2 text-center text-[10px] text-slate-500 font-sans space-y-1">
-            <p className="font-medium text-slate-700">{shopSettings.receiptFooterMsg}</p>
+            <p className="font-medium text-slate-700">
+              {shopSettings.receiptFooterMsg}
+            </p>
             <p className="text-[9px] text-slate-400">
               সফটওয়্যার: স্মার্ট মুদি ম্যানেজার (Smart Mudi Manager)
             </p>

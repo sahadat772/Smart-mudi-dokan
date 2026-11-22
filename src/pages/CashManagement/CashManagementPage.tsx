@@ -236,13 +236,17 @@ export const CashManagementPage: React.FC<CashManagementPageProps> = ({
           <div className="p-5 space-y-4 text-xs">
             {!isClosed && canManageCash && (
               <div className="space-y-2">
-                <label className="font-medium text-slate-700">প্রারম্ভিক ক্যাশ</label>
+                <label className="font-medium text-slate-700">
+                  প্রারম্ভিক ক্যাশ
+                </label>
                 <div className="flex gap-2">
                   <input
                     type="number"
                     min={0}
                     value={openingInput || ""}
-                    onChange={(e) => setOpeningInput(Number(e.target.value) || 0)}
+                    onChange={(e) =>
+                      setOpeningInput(Number(e.target.value) || 0)
+                    }
                     className="flex-1 px-3 py-2 border rounded-lg font-bold"
                   />
                   <button

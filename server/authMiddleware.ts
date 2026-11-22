@@ -133,7 +133,6 @@ export async function verifyUser(
         }
       }
     }
-
     // A legacy deployment may not have a shops/{shopId} record yet. Only the
     // explicitly configured owner UID can use this compatibility mapping.
     const configuredShopId = process.env.SHOP_ID?.trim();
