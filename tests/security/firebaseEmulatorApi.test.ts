@@ -293,6 +293,9 @@ test("real Auth and Firestore emulators enforce tenant isolation for API reads a
 test("real Auth Emulator rejects revoked and disabled ID tokens through Express middleware", async (t) => {
   await t.test("revoked refresh tokens", async () => {
     const principal = await createOwner("revoked");
+    // Firebase ID token auth_time has second precision; ensure it predates
+    // tokensValidAfterTime so the revocation assertion is deterministic.
+    await new Promise((resolve) => setTimeout(resolve, 1100));
     await adminAuth.revokeRefreshTokens(principal.uid);
     const response = await apiRequest(principal.token, "/api/products");
     assert.equal(response.status, 401);
