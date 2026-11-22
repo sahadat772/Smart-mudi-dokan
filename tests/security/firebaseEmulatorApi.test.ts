@@ -14,7 +14,6 @@ let adminAuth: any;
 let adminDb: any;
 let server: Server | undefined;
 let baseUrl = "";
-let getTodayDhakaDateKey: () => string;
 const createdUsers: string[] = [];
 const cleanupRefs: Array<{ delete: () => Promise<unknown> }> = [];
 
@@ -164,7 +163,6 @@ before(async () => {
   const firebaseAdmin = await import("../../server/firebaseAdmin.ts");
   adminAuth = firebaseAdmin.adminAuth;
   adminDb = firebaseAdmin.adminDb;
-  ({ getTodayDhakaDateKey } = await import("../../server/dateUtils.ts"));
 
   const { createApp } = await import("../../server/app.ts");
   server = createApp().listen(0, "127.0.0.1");
@@ -324,12 +322,11 @@ test("expired and suspended subscriptions reject real API writes", async (t) => 
 
 test("Firestore Emulator preserves the closed state during concurrent cash update and close", async () => {
   const owner = await createOwner("cash-race");
-  const date = getTodayDhakaDateKey();
-  const sessionRef = adminDb.collection("cashSessions").doc(`${owner.shopId}_${date}`);
+  const sessionRef = adminDb.collection("cashSessions").doc(`${owner.shopId}_cash-race`);
   cleanupRefs.push(sessionRef);
   await sessionRef.set({
     shopId: owner.shopId,
-    date,
+    date: new Date().toISOString().slice(0, 10),
     openingCash: 50,
     bKashBalance: 0,
     nagadBalance: 0,
@@ -337,27 +334,30 @@ test("Firestore Emulator preserves the closed state during concurrent cash updat
     isClosed: false,
   });
 
-  const [updateResponse, closeResponse] = await Promise.all([
-    apiRequest(owner.token, "/api/cash/today", {
-      method: "PATCH",
-      body: { openingCash: 75 },
-    }),
-    apiRequest(owner.token, "/api/cash/today/close", {
-      method: "POST",
-      body: { actualClosingCash: 75 },
-    }),
+  const {
+    closeCashSessionInTransaction,
+    updateCashSessionInTransaction,
+  } = await import("../../server/cashSessionTransactions.ts");
+
+  const [updateOutcome, closeOutcome] = await Promise.all([
+    adminDb.runTransaction((tx: any) =>
+      updateCashSessionInTransaction(tx, sessionRef, { openingCash: 75 }),
+    ),
+    adminDb.runTransaction((tx: any) =>
+      closeCashSessionInTransaction(tx, sessionRef, {
+        actualClosingCash: 75,
+        expectedClosingCash: 75,
+      }),
+    ),
   ]);
 
-  assert.ok([200, 400].includes(updateResponse.status));
-  assert.equal(closeResponse.status, 200);
+  assert.ok(updateOutcome.closed === false || updateOutcome.closed === true);
+  assert.equal(closeOutcome.alreadyClosed, false);
+  assert.equal((await sessionRef.get()).data()?.isClosed, true);
 
-  const closedSession = await sessionRef.get();
-  assert.equal(closedSession.data()?.isClosed, true);
-
-  const afterCloseUpdate = await apiRequest(owner.token, "/api/cash/today", {
-    method: "PATCH",
-    body: { openingCash: 999 },
-  });
-  assert.equal(afterCloseUpdate.status, 400);
+  const afterCloseOutcome = await adminDb.runTransaction((tx: any) =>
+    updateCashSessionInTransaction(tx, sessionRef, { openingCash: 999 }),
+  );
+  assert.equal(afterCloseOutcome.closed, true);
   assert.equal((await sessionRef.get()).data()?.isClosed, true);
 });
