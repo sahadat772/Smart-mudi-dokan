@@ -279,17 +279,15 @@ test("real Auth and Firestore emulators enforce tenant isolation for API reads a
   });
   assert.equal(spoofedCreate.status, 201);
 
-  const createdInA = await adminDb.collection("products")
-    .where("shopId", "==", ownerA.shopId)
-    .where("sku", "==", "EMU-A-CREATED")
-    .get();
-  const createdInB = await adminDb.collection("products")
-    .where("shopId", "==", ownerB.shopId)
-    .where("sku", "==", "EMU-A-CREATED")
-    .get();
-  assert.equal(createdInA.size, 1);
-  assert.equal(createdInB.size, 0);
-  cleanupRefs.push(...createdInA.docs.map((doc: any) => doc.ref));
+  const [productsInA, productsInB] = await Promise.all([
+    adminDb.collection("products").where("shopId", "==", ownerA.shopId).get(),
+    adminDb.collection("products").where("shopId", "==", ownerB.shopId).get(),
+  ]);
+  const createdInA = productsInA.docs.filter((doc: any) => doc.data().sku === "EMU-A-CREATED");
+  const createdInB = productsInB.docs.filter((doc: any) => doc.data().sku === "EMU-A-CREATED");
+  assert.equal(createdInA.length, 1);
+  assert.equal(createdInB.length, 0);
+  cleanupRefs.push(...createdInA.map((doc: any) => doc.ref));
 });
 
 test("real Auth Emulator rejects revoked and disabled ID tokens through Express middleware", async (t) => {
