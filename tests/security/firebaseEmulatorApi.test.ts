@@ -248,6 +248,26 @@ test("emulator bootstrap refuses production credential environment variables", a
       assert.doesNotMatch(result.stderr, /test-only-not-a-credential|production-service-account/);
     });
   }
+
+  await t.test("a preinitialized credentialed Admin app cannot be reused", () => {
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--import", "./tests/security/ts-resolution.mjs",
+        "--input-type=module",
+        "-e",
+        "import { applicationDefault, initializeApp } from 'firebase-admin/app'; initializeApp({ projectId: 'demo-smart-mudi-security', credential: applicationDefault() }); await import('./server/firebaseAdmin.ts')",
+      ],
+      {
+        cwd: process.cwd(),
+        env: emulatorEnvironment(),
+        encoding: "utf8",
+        timeout: 15000,
+      },
+    );
+    assert.notEqual(result.status, 0, "Emulator bootstrap reused a credentialed Firebase Admin app.");
+    assert.match(result.stderr, /cannot reuse a Firebase Admin app initialized with production credentials/);
+  });
 });
 
 test("real Auth and Firestore emulators enforce tenant isolation for API reads and writes", async () => {
