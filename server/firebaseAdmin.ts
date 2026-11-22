@@ -105,6 +105,11 @@ const existingApp = getApps().find((candidate) => candidate.name === "[DEFAULT]"
 if (existingApp && existingApp.options.projectId !== options.projectId) {
   throw new Error("An existing Firebase Admin app uses a different project ID.");
 }
+if (emulatorMode && existingApp?.options.credential) {
+  throw new Error(
+    "Emulator mode cannot reuse a Firebase Admin app initialized with production credentials.",
+  );
+}
 
 const app = existingApp || initializeApp(options);
 
