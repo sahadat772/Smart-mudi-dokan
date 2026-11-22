@@ -218,7 +218,7 @@ test("emulator bootstrap refuses production credential environment variables", a
     {
       label: "only the default Firestore database is allowed",
       overrides: { FIRESTORE_DATABASE_ID: "production-database" },
-      expected: /only permits Firestore database \\(default\\)/,
+      expected: /only permits Firestore database \(default\)/,
     },
     {
       label: "remote emulator hosts are rejected",
