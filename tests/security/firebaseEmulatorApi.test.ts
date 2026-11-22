@@ -194,15 +194,41 @@ after(async () => {
 });
 
 test("emulator bootstrap refuses production credential environment variables", async (t) => {
-  for (const [label, variable, value] of [
-    ["service-account JSON", "FIREBASE_SERVICE_ACCOUNT", "test-only-not-a-credential"],
-    ["ADC credential path", "GOOGLE_APPLICATION_CREDENTIALS", "C:\\private\\production-service-account.json"],
-  ]) {
-    await t.test(label, () => {
-      const env = {
-        ...emulatorEnvironment(),
-        [variable]: value,
-      };
+  const cases: Array<{ label: string; overrides: Record<string, string>; expected: RegExp }> = [
+    {
+      label: "service-account JSON is rejected",
+      overrides: { FIREBASE_SERVICE_ACCOUNT: "test-only-not-a-credential" },
+      expected: /Production credential environment variables must be unset/,
+    },
+    {
+      label: "ADC credential path is rejected",
+      overrides: { GOOGLE_APPLICATION_CREDENTIALS: "C:\\private\\production-service-account.json" },
+      expected: /Production credential environment variables must be unset/,
+    },
+    {
+      label: "both emulator hosts are required",
+      overrides: { FIRESTORE_EMULATOR_HOST: " " },
+      expected: /requires both FIREBASE_AUTH_EMULATOR_HOST and FIRESTORE_EMULATOR_HOST/,
+    },
+    {
+      label: "the dedicated demo project is required",
+      overrides: { FIREBASE_PROJECT_ID: "production-project" },
+      expected: /requires FIREBASE_PROJECT_ID=demo-smart-mudi-security/,
+    },
+    {
+      label: "only the default Firestore database is allowed",
+      overrides: { FIRESTORE_DATABASE_ID: "production-database" },
+      expected: /only permits Firestore database \\(default\\)/,
+    },
+    {
+      label: "remote emulator hosts are rejected",
+      overrides: { FIRESTORE_EMULATOR_HOST: "firebase.google.com:8080" },
+      expected: /remote hosts are not allowed/,
+    },
+  ];
+
+  for (const item of cases) {
+    await t.test(item.label, () => {
       const result = spawnSync(
         process.execPath,
         [
@@ -210,13 +236,15 @@ test("emulator bootstrap refuses production credential environment variables", a
           "--input-type=module",
           "-e", "await import('./server/firebaseAdmin.ts')",
         ],
-        { cwd: process.cwd(), env, encoding: "utf8", timeout: 15000 },
+        {
+          cwd: process.cwd(),
+          env: { ...emulatorEnvironment(), ...item.overrides },
+          encoding: "utf8",
+          timeout: 15000,
+        },
       );
-      assert.notEqual(result.status, 0, "Emulator bootstrap unexpectedly accepted production credentials.");
-      assert.match(
-        result.stderr,
-        /Production credential environment variables must be unset/,
-      );
+      assert.notEqual(result.status, 0, "Emulator bootstrap unexpectedly accepted contradictory configuration.");
+      assert.match(result.stderr, item.expected);
       assert.doesNotMatch(result.stderr, /test-only-not-a-credential|production-service-account/);
     });
   }
@@ -351,7 +379,7 @@ test("Firestore Emulator preserves the closed state during concurrent cash updat
     ),
   ]);
 
-  assert.ok(updateOutcome.closed === false || updateOutcome.closed === true);
+  assert.equal(typeof updateOutcome.closed, "boolean");
   assert.equal(closeOutcome.alreadyClosed, false);
   assert.equal((await sessionRef.get()).data()?.isClosed, true);
 
