@@ -94,7 +94,8 @@ if (emulatorMode) {
 
 const databaseId = emulatorMode
   ? DEFAULT_DATABASE_ID
-  : process.env.FIRESTORE_DATABASE_ID?.trim() || DEFAULT_DATABASE_ID;
+  : process.env.FIRESTORE_DATABASE_ID?.trim() ||
+    "ai-studio-96cf70ad-76e2-4b50-86a6-02248977631a";
 
 const options: AppOptions = emulatorMode
   ? { projectId: EMULATOR_PROJECT_ID }
