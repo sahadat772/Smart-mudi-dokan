@@ -197,7 +197,7 @@ after(async () => {
 
 test("emulator bootstrap refuses production credential environment variables", async (t) => {
   for (const [label, variable, value] of [
-    ["service-account JSON", "FIREBASE_SERVICE_ACCOUNT", '{"privateKey":"must-not-be-used"}'],
+    ["service-account JSON", "FIREBASE_SERVICE_ACCOUNT", "test-only-not-a-credential"],
     ["ADC credential path", "GOOGLE_APPLICATION_CREDENTIALS", "C:\\private\\production-service-account.json"],
   ]) {
     await t.test(label, () => {
@@ -219,7 +219,7 @@ test("emulator bootstrap refuses production credential environment variables", a
         result.stderr,
         /Production credential environment variables must be unset/,
       );
-      assert.doesNotMatch(result.stderr, /must-not-be-used|production-service-account/);
+      assert.doesNotMatch(result.stderr, /test-only-not-a-credential|production-service-account/);
     });
   }
 });
