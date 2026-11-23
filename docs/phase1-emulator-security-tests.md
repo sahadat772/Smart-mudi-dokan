@@ -25,7 +25,7 @@ node --version
 - Firestore: `127.0.0.1:8080`
 - Emulator UI: `127.0.0.1:4000`
 
-The security test process is pinned to project ID `demo-smart-mudi-security` and Firestore database `(default)`. The Admin SDK does not load a service-account key in emulator mode.
+The security test process explicitly enables Emulator mode, sets `NODE_ENV=test`, and is pinned to project ID `demo-smart-mudi-security` and Firestore database `(default)`. The Admin SDK does not load a service-account key in emulator mode.
 
 ## Run the complete suite (recommended)
 
@@ -49,6 +49,8 @@ Terminal 2 (repository root):
 
 ```powershell
 $env:FIREBASE_PROJECT_ID = "demo-smart-mudi-security"
+$env:NODE_ENV = "development"
+$env:FIREBASE_EMULATOR_ENABLED = "true"
 $env:FIRESTORE_DATABASE_ID = "(default)"
 $env:FIREBASE_AUTH_EMULATOR_HOST = "127.0.0.1:9099"
 $env:FIRESTORE_EMULATOR_HOST = "127.0.0.1:8080"
@@ -74,12 +76,15 @@ The test suite creates uniquely named temporary Auth users and Firestore documen
 
 **Never use production credentials with the Emulator Suite.** Do not paste credentials into commands, source files, documentation, or chat.
 
-- Emulator mode requires both local emulator host variables, the exact demo project ID, and the default Firestore database.
+- Emulator mode requires `FIREBASE_EMULATOR_ENABLED=true`, `NODE_ENV=development` or `test`, both local emulator host variables, the exact demo project ID, and the default Firestore database.
 - Emulator hosts must resolve to loopback and use the configured ports.
+- Emulator settings fail startup when the opt-in is missing or `NODE_ENV` is missing, empty, production, or unsupported.
+- `server/.env` is loaded only when `NODE_ENV=development`; tests supply their own isolated environment and do not load it.
+- When `NODE_ENV=production`, Firebase Admin startup rejects emulator settings and uses Application Default Credentials with `FIREBASE_PROJECT_ID`.
 - Emulator mode rejects non-empty `FIREBASE_SERVICE_ACCOUNT` and `GOOGLE_APPLICATION_CREDENTIALS` values.
 - Emulator mode does not call `applicationDefault()`, read `serviceAccountKey.json`, or initialize with a service-account credential.
 - Outside emulator mode, the server uses Application Default Credentials only. Configure ADC locally using your approved Google Cloud identity workflow; do not commit credential files.
-- If your `server/.env` contains production credential variables, the test process deliberately overrides them with empty values before importing Firebase Admin. Never copy production values into the emulator environment.
+- The test process sets its local environment and clears credential variables before importing Firebase Admin. Never copy production values into the emulator environment.
 - Do not change the demo project ID to a real Firebase project.
 
 If the emulator configuration is incomplete, points to a non-loopback host, uses a different project/database, or contains production credential environment variables, Firebase Admin initialization fails closed.

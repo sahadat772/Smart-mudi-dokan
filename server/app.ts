@@ -19,7 +19,9 @@ import { enforceActiveSubscription } from "./subscriptionMiddleware.js";
 import subscriptionRoutes from "./subscriptionRoutes.js";
 import { captureCashEventTime } from "./cashEventTime.js";
 
-dotenv.config({ path: "server/.env" });
+if (process.env.NODE_ENV === "development") {
+  dotenv.config({ path: "server/.env" });
+}
 
 function isAllowedOrigin(origin?: string) {
   const allowedOrigins = (process.env.CORS_ORIGIN || "http://localhost:3000")

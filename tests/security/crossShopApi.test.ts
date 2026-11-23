@@ -162,6 +162,8 @@ function snapshot(collection: string, ids: string[]) {
 }
 
 before(async () => {
+  process.env.NODE_ENV = "test";
+  process.env.FIREBASE_EMULATOR_ENABLED = "true";
   process.env.FIREBASE_PROJECT_ID = "demo-smart-mudi-security";
   process.env.FIRESTORE_DATABASE_ID = "(default)";
   process.env.FIREBASE_SERVICE_ACCOUNT = "";
@@ -220,7 +222,7 @@ after(async () => {
   await Promise.all(getApps().map((app) => deleteApp(app)));
 });
 
-test("integration Firebase configuration ignores credentials from server/.env", () => {
+test("test environment keeps Firebase credentials unset during initialization", () => {
   assert.equal(process.env.FIREBASE_PROJECT_ID, "demo-smart-mudi-security");
   assert.equal(process.env.FIREBASE_AUTH_EMULATOR_HOST, "127.0.0.1:9099");
   assert.equal(process.env.FIRESTORE_EMULATOR_HOST, "127.0.0.1:8080");

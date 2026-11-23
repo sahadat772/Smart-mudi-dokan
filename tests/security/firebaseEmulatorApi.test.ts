@@ -1,14 +1,24 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
 import { once } from "node:events";
 import test, { after, before } from "node:test";
 import type { Server } from "node:http";
 import { randomUUID } from "node:crypto";
+import { join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { getDhakaDateKey } from "../../server/dateUtils.ts";
 
 const PROJECT_ID = "demo-smart-mudi-security";
 const AUTH_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST?.trim() || "";
 const FIRESTORE_HOST = process.env.FIRESTORE_EMULATOR_HOST?.trim() || "";
+const REPO_ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
+const TS_RESOLUTION_HOOK = pathToFileURL(
+  resolve(REPO_ROOT, "tests/security/ts-resolution.mjs"),
+).href;
+const FIREBASE_ADMIN_MODULE = pathToFileURL(
+  resolve(REPO_ROOT, "server/firebaseAdmin.ts"),
+).href;
 const PASSWORD = "Local-emulator-only-Password-123!";
 let cashActivityNow = new Date();
 let cashActivityClockCalls = 0;
@@ -23,6 +33,8 @@ const cleanupRefs: Array<{ delete: () => Promise<unknown> }> = [];
 function emulatorEnvironment() {
   return {
     ...process.env,
+    NODE_ENV: "test",
+    FIREBASE_EMULATOR_ENABLED: "true",
     FIREBASE_PROJECT_ID: PROJECT_ID,
     FIRESTORE_DATABASE_ID: "(default)",
     FIREBASE_AUTH_EMULATOR_HOST: AUTH_HOST,
@@ -30,6 +42,31 @@ function emulatorEnvironment() {
     FIREBASE_SERVICE_ACCOUNT: "",
     GOOGLE_APPLICATION_CREDENTIALS: "",
   };
+}
+
+function runFirebaseAdminBootstrap(
+  env: NodeJS.ProcessEnv,
+  statement = `await import(${JSON.stringify(FIREBASE_ADMIN_MODULE)})`,
+) {
+  const cwd = mkdtempSync(join(REPO_ROOT, ".firebase-admin-bootstrap-"));
+  try {
+    return spawnSync(
+      process.execPath,
+      [
+        "--import", TS_RESOLUTION_HOOK,
+        "--input-type=module",
+        "-e", statement,
+      ],
+      {
+        cwd,
+        env,
+        encoding: "utf8",
+        timeout: 15000,
+      },
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
 }
 
 async function signIn(email: string) {
@@ -451,9 +488,10 @@ before(async () => {
   assert.ok(FIRESTORE_HOST, "FIRESTORE_EMULATOR_HOST is required. Start tests through Firebase Emulator Suite.");
 
   process.env.FIREBASE_PROJECT_ID = PROJECT_ID;
+  process.env.NODE_ENV = "test";
+  process.env.FIREBASE_EMULATOR_ENABLED = "true";
   process.env.FIRESTORE_DATABASE_ID = "(default)";
-  // Empty values are intentional: dotenv must not inject production credentials
-  // from a developer's server/.env while this test process initializes Firebase.
+  // Keep the emulator test independent of ambient credential configuration.
   process.env.FIREBASE_SERVICE_ACCOUNT = "";
   process.env.GOOGLE_APPLICATION_CREDENTIALS = "";
 
@@ -531,45 +569,167 @@ test("emulator bootstrap refuses production credential environment variables", a
 
   for (const item of cases) {
     await t.test(item.label, () => {
-      const result = spawnSync(
-        process.execPath,
-        [
-          "--import", "./tests/security/ts-resolution.mjs",
-          "--input-type=module",
-          "-e", "await import('./server/firebaseAdmin.ts')",
-        ],
-        {
-          cwd: process.cwd(),
-          env: { ...emulatorEnvironment(), ...item.overrides },
-          encoding: "utf8",
-          timeout: 15000,
-        },
-      );
+      const result = runFirebaseAdminBootstrap({
+        ...emulatorEnvironment(),
+        ...item.overrides,
+      });
       assert.notEqual(result.status, 0, "Emulator bootstrap unexpectedly accepted contradictory configuration.");
       assert.match(result.stderr, item.expected);
       assert.doesNotMatch(result.stderr, /test-only-not-a-credential|production-service-account/);
     });
   }
 
-  await t.test("a preinitialized credentialed Admin app cannot be reused", () => {
-    const result = spawnSync(
-      process.execPath,
-      [
-        "--import", "./tests/security/ts-resolution.mjs",
-        "--input-type=module",
-        "-e",
-        "import { applicationDefault, initializeApp } from 'firebase-admin/app'; initializeApp({ projectId: 'demo-smart-mudi-security', credential: applicationDefault() }); await import('./server/firebaseAdmin.ts')",
-      ],
+  await t.test("production rejects Firebase Emulator configuration", async (t) => {
+    const productionEnvironment = {
+      ...process.env,
+      NODE_ENV: "production",
+      FIREBASE_PROJECT_ID: "production-project",
+      FIREBASE_AUTH_EMULATOR_HOST: "",
+      FIRESTORE_EMULATOR_HOST: "",
+      FIREBASE_EMULATOR_ENABLED: "false",
+      FIREBASE_SERVICE_ACCOUNT: "",
+      GOOGLE_APPLICATION_CREDENTIALS: "",
+    };
+    const cases: Array<{ label: string; overrides: Record<string, string> }> = [
       {
-        cwd: process.cwd(),
-        env: emulatorEnvironment(),
-        encoding: "utf8",
-        timeout: 15000,
+        label: "Auth Emulator host",
+        overrides: { FIREBASE_AUTH_EMULATOR_HOST: AUTH_HOST },
       },
+      {
+        label: "Firestore Emulator host",
+        overrides: { FIRESTORE_EMULATOR_HOST: FIRESTORE_HOST },
+      },
+      {
+        label: "demo project ID",
+        overrides: { FIREBASE_PROJECT_ID: PROJECT_ID },
+      },
+      {
+        label: "complete local Emulator configuration",
+        overrides: {
+          FIREBASE_AUTH_EMULATOR_HOST: AUTH_HOST,
+          FIRESTORE_EMULATOR_HOST: FIRESTORE_HOST,
+          FIREBASE_PROJECT_ID: PROJECT_ID,
+        },
+      },
+    ];
+
+    for (const item of cases) {
+      await t.test(item.label, () => {
+        const result = runFirebaseAdminBootstrap({
+          ...productionEnvironment,
+          ...item.overrides,
+          FIREBASE_EMULATOR_ENABLED: "true",
+        });
+        assert.notEqual(result.status, 0, "Production accepted Firebase Emulator configuration.");
+        assert.match(result.stderr, /only allowed when NODE_ENV is explicitly development or test/);
+      });
+    }
+
+    await t.test("production rejects the Emulator opt-in even without hosts", () => {
+      const result = runFirebaseAdminBootstrap({
+        ...productionEnvironment,
+        FIREBASE_EMULATOR_ENABLED: "true",
+      });
+      assert.notEqual(result.status, 0, "Production accepted Firebase Emulator opt-in.");
+      assert.match(result.stderr, /only allowed when NODE_ENV is explicitly development or test/);
+    });
+
+    await t.test("production still rejects the legacy service-account variable", () => {
+      const marker = "test-only-legacy-variable";
+      const result = runFirebaseAdminBootstrap({
+        ...productionEnvironment,
+        FIREBASE_SERVICE_ACCOUNT: marker,
+      });
+      assert.notEqual(result.status, 0, "Production accepted FIREBASE_SERVICE_ACCOUNT.");
+      assert.match(result.stderr, /FIREBASE_SERVICE_ACCOUNT is not supported/);
+      assert.doesNotMatch(result.stderr, new RegExp(marker));
+    });
+  });
+
+  await t.test("a preinitialized credentialed Admin app cannot be reused", () => {
+    const result = runFirebaseAdminBootstrap(
+      emulatorEnvironment(),
+      `import { applicationDefault, initializeApp } from 'firebase-admin/app'; initializeApp({ projectId: 'demo-smart-mudi-security', credential: applicationDefault() }); await import(${JSON.stringify(FIREBASE_ADMIN_MODULE)})`,
     );
     assert.notEqual(result.status, 0, "Emulator bootstrap reused a credentialed Firebase Admin app.");
     assert.match(result.stderr, /cannot reuse a Firebase Admin app initialized with production credentials/);
   });
+});
+
+test("Firebase Emulator activation requires explicit opt-in and a supported NODE_ENV", async (t) => {
+  const cases: Array<{ label: string; nodeEnv?: string }> = [
+    { label: "missing NODE_ENV" },
+    { label: "empty NODE_ENV", nodeEnv: "" },
+    { label: "production NODE_ENV", nodeEnv: "production" },
+    { label: "unsupported NODE_ENV", nodeEnv: "staging" },
+  ];
+
+  for (const item of cases) {
+    await t.test(item.label, () => {
+      const env: NodeJS.ProcessEnv = emulatorEnvironment();
+      if (item.nodeEnv === undefined) delete env.NODE_ENV;
+      else env.NODE_ENV = item.nodeEnv;
+      const result = runFirebaseAdminBootstrap(env);
+      assert.notEqual(result.status, 0, "Unsupported NODE_ENV activated Firebase Emulator mode.");
+      assert.match(result.stderr, /only allowed when NODE_ENV is explicitly development or test/);
+    });
+  }
+
+  for (const nodeEnv of ["development", "test"]) {
+    await t.test(`${nodeEnv} starts with explicit Emulator opt-in`, () => {
+      const statement = [
+        "import assert from 'node:assert/strict';",
+        "import { getApps } from 'firebase-admin/app';",
+        `await import(${JSON.stringify(FIREBASE_ADMIN_MODULE)});`,
+        "const app = getApps().find((candidate) => candidate.name === '[DEFAULT]');",
+        "assert.ok(app);",
+        `assert.equal(app.options.projectId, ${JSON.stringify(PROJECT_ID)});`,
+      ].join(" ");
+      const result = runFirebaseAdminBootstrap(
+        { ...emulatorEnvironment(), NODE_ENV: nodeEnv },
+        statement,
+      );
+      assert.equal(result.status, 0, result.stderr);
+    });
+  }
+
+  for (const nodeEnv of ["development", "test"]) {
+    await t.test(`${nodeEnv} requires explicit Emulator opt-in`, () => {
+      const env = { ...emulatorEnvironment(), NODE_ENV: nodeEnv };
+      env.FIREBASE_EMULATOR_ENABLED = "";
+      const result = runFirebaseAdminBootstrap(env);
+      assert.notEqual(result.status, 0, "Emulator hosts activated mode without explicit opt-in.");
+      assert.match(result.stderr, /requires FIREBASE_EMULATOR_ENABLED=true/);
+    });
+  }
+});
+
+test("production uses ADC and FIREBASE_PROJECT_ID when Emulator settings are absent", () => {
+  const statement = [
+    "import assert from 'node:assert/strict';",
+    "import { getApps } from 'firebase-admin/app';",
+    `await import(${JSON.stringify(FIREBASE_ADMIN_MODULE)});`,
+    "const app = getApps().find((candidate) => candidate.name === '[DEFAULT]');",
+    "assert.ok(app);",
+    "assert.equal(app.options.projectId, 'production-project');",
+    "assert.ok(app.options.credential);",
+  ].join(" ");
+  const result = runFirebaseAdminBootstrap({
+    ...emulatorEnvironment(),
+    NODE_ENV: "production",
+    FIREBASE_EMULATOR_ENABLED: "false",
+    FIREBASE_PROJECT_ID: "production-project",
+    FIREBASE_AUTH_EMULATOR_HOST: "",
+    FIRESTORE_EMULATOR_HOST: "",
+  }, statement);
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("local emulator bootstrap initializes the demo project without production credentials", async () => {
+  const { getApps } = await import("firebase-admin/app");
+  const app = getApps().find((candidate) => candidate.name === "[DEFAULT]");
+  assert.ok(app, "Firebase Admin app was not initialized.");
+  assert.equal(app.options.projectId, PROJECT_ID);
 });
 
 test("real Auth and Firestore emulators enforce tenant isolation for API reads and writes", async () => {

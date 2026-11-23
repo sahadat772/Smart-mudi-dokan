@@ -8,7 +8,9 @@ import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 import dotenv from "dotenv";
 
-dotenv.config({ path: "server/.env" });
+if (process.env.NODE_ENV === "development") {
+  dotenv.config({ path: "server/.env" });
+}
 
 const EMULATOR_PROJECT_ID = "demo-smart-mudi-security";
 const DEFAULT_DATABASE_ID = "(default)";
@@ -45,9 +47,41 @@ function assertLoopbackEmulatorHost(
 const authEmulatorHost = process.env.FIREBASE_AUTH_EMULATOR_HOST?.trim() || "";
 const firestoreEmulatorHost =
   process.env.FIRESTORE_EMULATOR_HOST?.trim() || "";
-const emulatorMode = Boolean(authEmulatorHost || firestoreEmulatorHost);
-
 const projectId = process.env.FIREBASE_PROJECT_ID?.trim();
+const emulatorHostsConfigured = Boolean(
+  process.env.FIREBASE_AUTH_EMULATOR_HOST ||
+    process.env.FIRESTORE_EMULATOR_HOST,
+);
+const emulatorSetting = process.env.FIREBASE_EMULATOR_ENABLED?.trim() || "";
+const emulatorConfigurationPresent = Boolean(
+  emulatorHostsConfigured ||
+    projectId === EMULATOR_PROJECT_ID,
+);
+const localEnvironment =
+  process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";
+
+if (emulatorSetting && emulatorSetting !== "true" && emulatorSetting !== "false") {
+  throw new Error(
+    "FIREBASE_EMULATOR_ENABLED must be either true or false.",
+  );
+}
+
+if (
+  (emulatorConfigurationPresent || emulatorSetting === "true") &&
+  !localEnvironment
+) {
+  throw new Error(
+    "Firebase Emulator configuration is only allowed when NODE_ENV is explicitly development or test.",
+  );
+}
+
+if (emulatorConfigurationPresent && emulatorSetting !== "true") {
+  throw new Error(
+    "Firebase Emulator configuration requires FIREBASE_EMULATOR_ENABLED=true.",
+  );
+}
+
+const emulatorMode = emulatorSetting === "true";
 
 if (emulatorMode) {
   if (!authEmulatorHost || !firestoreEmulatorHost) {
