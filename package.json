@@ -11,7 +11,9 @@
     "lint": "tsc --noEmit",
     "test:security": "node --test tests/security/authIdentity.test.ts tests/security/cashSession.test.ts",
     "test:security:integration": "node --import ./tests/security/ts-resolution.mjs --test tests/security/crossShopApi.test.ts",
-    "server": "npx tsx server/index.ts"
+    "server": "npx tsx server/index.ts",
+    "test:security:emulator": "node --import ./tests/security/ts-resolution.mjs --test tests/security/firebaseEmulatorApi.test.ts",
+    "test:security:emulator:run": "firebase emulators:exec --project demo-smart-mudi-security --only auth,firestore \"npm run test:security:emulator\""
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
@@ -41,4 +43,3 @@
     "typescript": "^7.0.2"
   }
 }
-

@@ -101,7 +101,7 @@ export async function verifyUser(
       });
     }
 
-    const decodedToken = await adminAuth.verifyIdToken(idToken);
+    const decodedToken = await adminAuth.verifyIdToken(idToken, true);
     const authUser = await loadAuthUser(decodedToken.uid, decodedToken.email);
 
     if (!authUser) {

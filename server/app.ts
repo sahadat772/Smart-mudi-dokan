@@ -17,8 +17,11 @@ import shopRoutes from "./shopRoutes.js";
 import assistantRoutes from "./assistantRoutes.js";
 import { enforceActiveSubscription } from "./subscriptionMiddleware.js";
 import subscriptionRoutes from "./subscriptionRoutes.js";
+import { captureCashEventTime } from "./cashEventTime.js";
 
-dotenv.config({ path: "server/.env" });
+if (process.env.NODE_ENV === "development") {
+  dotenv.config({ path: "server/.env" });
+}
 
 function isAllowedOrigin(origin?: string) {
   const allowedOrigins = (process.env.CORS_ORIGIN || "http://localhost:3000")
@@ -40,8 +43,9 @@ function isAllowedOrigin(origin?: string) {
 }
 
 /** Create the production API app without binding a network port. */
-export function createApp() {
+export function createApp(options: { cashEventClock?: () => Date } = {}) {
   const app = express();
+  app.locals.cashEventClock = options.cashEventClock;
   app.use(
     cors({
       origin(origin, callback) {
@@ -49,6 +53,10 @@ export function createApp() {
       },
     }),
   );
+  app.use("/api", (req, _res, next) => {
+    captureCashEventTime(req);
+    next();
+  });
   app.use(express.json());
   app.use(express.urlencoded({ extended: false, limit: "16kb" }));
   app.use("/api", enforceActiveSubscription);

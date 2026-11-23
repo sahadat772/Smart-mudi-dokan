@@ -1,12 +1,19 @@
 import { Router } from "express";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "./firebaseAdmin.js";
+import { addDateKeyDays } from "./dateUtils.js";
+import { captureCashEventTime } from "./cashEventTime.js";
 import {
   verifyUser,
   requirePermission,
   type AuthenticatedRequest,
 } from "./authMiddleware.js";
 import { resolveShopId } from "./shopContext.js";
+import {
+  CASH_TRANSACTION_MAX_ATTEMPTS,
+  getCashTransactionErrorStatus,
+  recordCashActivityInTransaction,
+} from "./cashSessionTransactions.js";
 
 const router = Router();
 
@@ -186,6 +193,7 @@ router.post(
       const { id } = req.params;
       const authReq = req as AuthenticatedRequest;
       const sid = resolveShopId(authReq);
+      const cashEventTime = captureCashEventTime(req);
       const body = req.body || {};
       const amount = Number(body.amount);
       const paymentMethod = body.paymentMethod;
@@ -208,6 +216,12 @@ router.post(
 
       const customerRef = adminDb.collection("customers").doc(id);
       const collectionRef = adminDb.collection("dueCollections").doc();
+      const cashDate = cashEventTime.date;
+      const cashSessions = adminDb.collection("cashSessions");
+      const cashSessionRef = cashSessions.doc(`${sid}_${cashDate}`);
+      const previousCashSessionRef = cashSessions.doc(
+        `${sid}_${addDateKeyDays(cashDate, -1)}`,
+      );
 
       const result = await adminDb.runTransaction(async (tx) => {
         const snap = await tx.get(customerRef);
@@ -239,6 +253,20 @@ router.post(
           authReq.user?.email ||
           (authReq.user?.role === "owner" ? "Owner" : "Employee");
 
+        if (paymentMethod === "নগদ (Cash)") {
+          await recordCashActivityInTransaction(
+            tx,
+            cashSessionRef,
+            previousCashSessionRef,
+            {
+              shopId: sid,
+              date: cashDate,
+              createdAt: cashEventTime.timestamp,
+              updatedAt: cashEventTime.timestamp,
+            },
+          );
+        }
+
         tx.update(customerRef, {
           currentDue: remainingDue,
           totalPaid: previousPaid + amount,
@@ -257,28 +285,40 @@ router.post(
           remainingDue,
           collectedBy,
           collectedByUid: authReq.user?.uid,
-          createdAt: FieldValue.serverTimestamp(),
+          createdAt: paymentMethod === "নগদ (Cash)"
+            ? cashEventTime.timestamp
+            : FieldValue.serverTimestamp(),
         };
 
         tx.set(collectionRef, collectionDoc);
 
         return { collectionDoc, remainingDue };
-      });
+      }, { maxAttempts: CASH_TRANSACTION_MAX_ATTEMPTS });
+
+      const responseCreatedAt = paymentMethod === "নগদ (Cash)"
+        ? cashEventTime.timestamp
+        : (await collectionRef.get()).data()?.createdAt;
+      if (typeof responseCreatedAt?.toDate !== "function") {
+        throw new Error("Committed collection timestamp is unavailable.");
+      }
 
       return res.status(201).json({
         success: true,
         message: "Due collected successfully.",
         collection: mapCollection(collectionRef.id, {
           ...result.collectionDoc,
-          createdAt: new Date(),
+          createdAt: responseCreatedAt,
         }),
         remainingDue: result.remainingDue,
       });
     } catch (error: any) {
-      console.error("Collect due failed:", error);
-      return res.status(error?.status || 500).json({
+      const status = getCashTransactionErrorStatus(error);
+      if (status !== 409) console.error("Collect due failed:", error);
+      return res.status(status).json({
         success: false,
-        message: error?.message || "Unable to collect due.",
+        message: status === 409
+          ? error?.message || "Cash session changed during this collection. Please retry."
+          : error?.message || "Unable to collect due.",
       });
     }
   },

@@ -1,12 +1,19 @@
 import { Router } from "express";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "./firebaseAdmin.js";
+import { addDateKeyDays } from "./dateUtils.js";
+import { captureCashEventTime } from "./cashEventTime.js";
 import {
   verifyUser,
   requirePermission,
   type AuthenticatedRequest,
 } from "./authMiddleware.js";
 import { resolveShopId } from "./shopContext.js";
+import {
+  CASH_TRANSACTION_MAX_ATTEMPTS,
+  getCashTransactionErrorStatus,
+  recordCashActivityInTransaction,
+} from "./cashSessionTransactions.js";
 
 const router = Router();
 
@@ -88,6 +95,7 @@ router.get("/", requirePermission("expenses", "view"), async (req, res) => {
 router.post("/", requirePermission("expenses", "manage"), async (req, res) => {
   try {
     const authReq = req as AuthenticatedRequest;
+    const cashEventTime = captureCashEventTime(req);
     const body = req.body || {};
     const sid = resolveShopId(authReq);
 
@@ -146,10 +154,35 @@ router.post("/", requirePermission("expenses", "manage"), async (req, res) => {
       note: note || null,
       recordedBy,
       recordedByUid: authReq.user?.uid,
-      createdAt: FieldValue.serverTimestamp(),
+      createdAt: paymentMethod === "নগদ (Cash)"
+        ? cashEventTime.timestamp
+        : FieldValue.serverTimestamp(),
     };
 
-    await docRef.set(payload);
+    const cashDate = cashEventTime.date;
+    const cashSessions = adminDb.collection("cashSessions");
+    const cashSessionRef = cashSessions.doc(`${sid}_${cashDate}`);
+    const previousCashSessionRef = cashSessions.doc(
+      `${sid}_${addDateKeyDays(cashDate, -1)}`,
+    );
+    if (paymentMethod === "নগদ (Cash)") {
+      await adminDb.runTransaction(async (tx) => {
+        await recordCashActivityInTransaction(
+          tx,
+          cashSessionRef,
+          previousCashSessionRef,
+          {
+            shopId: sid,
+            date: cashDate,
+            createdAt: cashEventTime.timestamp,
+            updatedAt: cashEventTime.timestamp,
+          },
+        );
+        tx.set(docRef, payload);
+      }, { maxAttempts: CASH_TRANSACTION_MAX_ATTEMPTS });
+    } else {
+      await docRef.set(payload);
+    }
 
     return res.status(201).json({
       success: true,
@@ -160,10 +193,13 @@ router.post("/", requirePermission("expenses", "manage"), async (req, res) => {
       }),
     });
   } catch (error) {
-    console.error("Create expense failed:", error);
-    return res.status(500).json({
+    const status = getCashTransactionErrorStatus(error);
+    if (status !== 409) console.error("Create expense failed:", error);
+    return res.status(status).json({
       success: false,
-      message: "Unable to record expense.",
+      message: status === 409
+        ? "Cash session changed during this expense. Please retry."
+        : "Unable to record expense.",
     });
   }
 });

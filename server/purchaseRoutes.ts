@@ -1,12 +1,19 @@
 import { Router } from "express";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "./firebaseAdmin.js";
+import { addDateKeyDays } from "./dateUtils.js";
+import { captureCashEventTime } from "./cashEventTime.js";
 import {
   verifyUser,
   requirePermission,
   type AuthenticatedRequest,
 } from "./authMiddleware.js";
 import { resolveShopId } from "./shopContext.js";
+import {
+  CASH_TRANSACTION_MAX_ATTEMPTS,
+  getCashTransactionErrorStatus,
+  recordCashActivityInTransaction,
+} from "./cashSessionTransactions.js";
 
 const router = Router();
 
@@ -165,6 +172,7 @@ router.post(
     try {
       const authReq = req as AuthenticatedRequest;
       const sid = resolveShopId(authReq);
+      const cashEventTime = captureCashEventTime(req);
       const { id } = req.params;
       const amount = Number(req.body?.amount);
       const paymentMethod = req.body?.paymentMethod;
@@ -189,6 +197,12 @@ router.post(
 
       const supplierRef = adminDb.collection("suppliers").doc(id);
       const paymentRef = adminDb.collection("supplierPayments").doc();
+      const cashDate = cashEventTime.date;
+      const cashSessions = adminDb.collection("cashSessions");
+      const cashSessionRef = cashSessions.doc(`${sid}_${cashDate}`);
+      const previousCashSessionRef = cashSessions.doc(
+        `${sid}_${addDateKeyDays(cashDate, -1)}`,
+      );
 
       const result = await adminDb.runTransaction(async (tx) => {
         const snap = await tx.get(supplierRef);
@@ -208,6 +222,20 @@ router.post(
 
         const remaining = previousDue - amount;
         const totalPaid = (Number(data.totalPaid) || 0) + amount;
+
+        if (paymentMethod === "নগদ (Cash)") {
+          await recordCashActivityInTransaction(
+            tx,
+            cashSessionRef,
+            previousCashSessionRef,
+            {
+              shopId: sid,
+              date: cashDate,
+              createdAt: cashEventTime.timestamp,
+              updatedAt: cashEventTime.timestamp,
+            },
+          );
+        }
 
         tx.update(supplierRef, {
           outstandingBalance: remaining,
@@ -231,7 +259,9 @@ router.post(
           remainingDue: remaining,
           paidBy,
           paidByUid: authReq.user?.uid,
-          createdAt: FieldValue.serverTimestamp(),
+          createdAt: paymentMethod === "নগদ (Cash)"
+            ? cashEventTime.timestamp
+            : FieldValue.serverTimestamp(),
         };
 
         tx.set(paymentRef, paymentDoc);
@@ -244,7 +274,14 @@ router.post(
           },
           paymentDoc,
         };
-      });
+      }, { maxAttempts: CASH_TRANSACTION_MAX_ATTEMPTS });
+
+      const responseCreatedAt = paymentMethod === "নগদ (Cash)"
+        ? cashEventTime.timestamp
+        : (await paymentRef.get()).data()?.createdAt;
+      if (typeof responseCreatedAt?.toDate !== "function") {
+        throw new Error("Committed supplier payment timestamp is unavailable.");
+      }
 
       return res.status(201).json({
         success: true,
@@ -253,14 +290,17 @@ router.post(
         payment: {
           id: paymentRef.id,
           ...result.paymentDoc,
-          createdAt: new Date().toISOString(),
+          createdAt: responseCreatedAt.toDate().toISOString(),
         },
       });
     } catch (error: any) {
-      console.error("Supplier pay failed:", error);
-      return res.status(error?.status || 500).json({
+      const status = getCashTransactionErrorStatus(error);
+      if (status !== 409) console.error("Supplier pay failed:", error);
+      return res.status(status).json({
         success: false,
-        message: error?.message || "Unable to record supplier payment.",
+        message: status === 409
+          ? error?.message || "Cash session changed during this payment. Please retry."
+          : error?.message || "Unable to record supplier payment.",
       });
     }
   },
@@ -308,6 +348,7 @@ router.post("/", requirePermission("purchases", "manage"), async (req, res) => {
   try {
     const authReq = req as AuthenticatedRequest;
     const sid = resolveShopId(authReq);
+    const cashEventTime = captureCashEventTime(req);
     const body = req.body || {};
 
     const invoiceNo =
@@ -375,6 +416,12 @@ router.post("/", requirePermission("purchases", "manage"), async (req, res) => {
     const supplierRef = adminDb.collection("suppliers").doc(supplierId);
     const productRef = adminDb.collection("products").doc(productId);
     const purchaseRef = adminDb.collection("purchases").doc();
+    const cashDate = cashEventTime.date;
+    const cashSessions = adminDb.collection("cashSessions");
+    const cashSessionRef = cashSessions.doc(`${sid}_${cashDate}`);
+    const previousCashSessionRef = cashSessions.doc(
+      `${sid}_${addDateKeyDays(cashDate, -1)}`,
+    );
 
     const result = await adminDb.runTransaction(async (tx) => {
       const [supplierSnap, productSnap] = await Promise.all([
@@ -400,6 +447,20 @@ router.post("/", requirePermission("purchases", "manage"), async (req, res) => {
       }
 
       const newStock = (Number(product.stockQuantity) || 0) + quantity;
+
+      if (paymentMethod === "নগদ (Cash)") {
+        await recordCashActivityInTransaction(
+          tx,
+          cashSessionRef,
+          previousCashSessionRef,
+          {
+            shopId: sid,
+            date: cashDate,
+            createdAt: cashEventTime.timestamp,
+            updatedAt: cashEventTime.timestamp,
+          },
+        );
+      }
 
       tx.update(productRef, {
         stockQuantity: newStock,
@@ -443,7 +504,9 @@ router.post("/", requirePermission("purchases", "manage"), async (req, res) => {
         receivedBy,
         receivedByUid: authReq.user?.uid,
         status,
-        createdAt: FieldValue.serverTimestamp(),
+        createdAt: paymentMethod === "নগদ (Cash)"
+          ? cashEventTime.timestamp
+          : FieldValue.serverTimestamp(),
       };
 
       tx.set(purchaseRef, purchaseDoc);
@@ -462,14 +525,21 @@ router.post("/", requirePermission("purchases", "manage"), async (req, res) => {
           lastPurchaseAt: new Date(),
         },
       };
-    });
+    }, { maxAttempts: CASH_TRANSACTION_MAX_ATTEMPTS });
+
+    const responseCreatedAt = paymentMethod === "নগদ (Cash)"
+      ? cashEventTime.timestamp
+      : (await purchaseRef.get()).data()?.createdAt;
+    if (typeof responseCreatedAt?.toDate !== "function") {
+      throw new Error("Committed purchase timestamp is unavailable.");
+    }
 
     return res.status(201).json({
       success: true,
       message: "Purchase recorded and stock updated.",
       purchase: mapPurchase(purchaseRef.id, {
         ...result.purchaseDoc,
-        createdAt: new Date(),
+        createdAt: responseCreatedAt,
       }),
       supplier: mapSupplier(supplierId, result.supplier),
       updatedProduct: {
@@ -479,10 +549,13 @@ router.post("/", requirePermission("purchases", "manage"), async (req, res) => {
       },
     });
   } catch (error: any) {
-    console.error("Create purchase failed:", error);
-    return res.status(error?.status || 500).json({
+    const status = getCashTransactionErrorStatus(error);
+    if (status !== 409) console.error("Create purchase failed:", error);
+    return res.status(status).json({
       success: false,
-      message: error?.message || "Unable to record purchase.",
+      message: status === 409
+        ? error?.message || "Cash session changed during this purchase. Please retry."
+        : error?.message || "Unable to record purchase.",
     });
   }
 });
