@@ -38,7 +38,7 @@ function mapSettings(data: Record<string, any>) {
 
 router.use(verifyUser);
 
-router.get("/", async (req, res) => {
+router.get("/", requirePermission("settings", "view"), async (req, res) => {
   try {
     const sid = resolveShopId(req as AuthenticatedRequest);
     const ref = adminDb.collection("shopSettings").doc(sid);

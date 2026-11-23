@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { generateKeyPairSync } from "node:crypto";
 import { once } from "node:events";
 import test, { after, before } from "node:test";
 import { InMemoryFirestore, plain } from "./fakes/inMemoryFirestore.ts";
@@ -39,6 +38,7 @@ function seedFixtures() {
   const today = getTodayDhakaDateKey();
   const grantsA = permissions(["dashboard", "pos", "products", "customers", "purchases", "expenses", "cash", "reports", "staff", "settings"]);
   const staffGrants = permissions(["dashboard", "pos", "products", "customers"]);
+  const settingsViewGrants = permissions(["settings"]);
 
   database.seed("shops", "shop-a", { id: "shop-a", name: "Shop A", ownerUid: "owner-a", plan: "pro", status: "active" });
   database.seed("shops", "shop-b", { id: "shop-b", name: "Shop B", ownerUid: "owner-b", plan: "pro", status: "active" });
@@ -46,6 +46,11 @@ function seedFixtures() {
   database.seed("users", "owner-b", userProfile("owner-b", "owner", "shop-b", grantsA));
   database.seed("users", "employee-a", userProfile("employee-a", "employee", "shop-a", staffGrants));
   database.seed("users", "employee-b", userProfile("employee-b", "employee", "shop-b", staffGrants));
+  database.seed("users", "employee-settings-view", userProfile("employee-settings-view", "employee", "shop-a", settingsViewGrants));
+  database.seed("users", "employee-password-change", {
+    ...userProfile("employee-password-change", "employee", "shop-a", settingsViewGrants),
+    mustChangePassword: true,
+  });
 
   database.seed("products", "product-a", {
     shopId: "shop-a", name: "Rice A", category: "চাল ও ডাল", unit: "কেজি", sku: "A-RICE",
@@ -123,6 +128,8 @@ function seedFixtures() {
     ["owner-b-token", "owner-b", "owner", "shop-b"],
     ["employee-a-token", "employee-a", "employee", "shop-a"],
     ["employee-b-token", "employee-b", "employee", "shop-b"],
+    ["employee-settings-view-token", "employee-settings-view", "employee", "shop-a"],
+    ["employee-password-change-token", "employee-password-change", "employee", "shop-a"],
     ["owner-a-claim-shop-b", "owner-a", "owner", "shop-b"],
     ["employee-a-claim-shop-b", "employee-a", "employee", "shop-b"],
     ["owner-a-claim-employee", "owner-a", "employee", "shop-a"],
@@ -155,23 +162,21 @@ function snapshot(collection: string, ids: string[]) {
 }
 
 before(async () => {
-  process.env.FIREBASE_PROJECT_ID = "smart-mudi-security-test";
+  process.env.FIREBASE_PROJECT_ID = "demo-smart-mudi-security";
   process.env.FIRESTORE_DATABASE_ID = "(default)";
   process.env.FIREBASE_SERVICE_ACCOUNT = "";
+  process.env.GOOGLE_APPLICATION_CREDENTIALS = "";
+  process.env.FIREBASE_AUTH_EMULATOR_HOST = "127.0.0.1:9099";
+  process.env.FIRESTORE_EMULATOR_HOST = "127.0.0.1:8080";
   process.env.OWNER_UID = "";
   process.env.SHOP_ID = "";
   process.env.LEGACY_SINGLE_TENANT_MODE = "false";
   process.env.PLATFORM_ADMIN_UIDS = "";
   process.env.GEMINI_API_KEY = "";
 
-  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-  process.env.FIREBASE_SERVICE_ACCOUNT = JSON.stringify({
-    projectId: "smart-mudi-security-test",
-    clientEmail: "test-admin@smart-mudi-security-test.invalid",
-    privateKey: privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
-  });
-
   const firebaseAdmin = await import("../../server/firebaseAdmin.ts");
+  assert.equal(process.env.FIREBASE_SERVICE_ACCOUNT, "");
+  assert.equal(process.env.GOOGLE_APPLICATION_CREDENTIALS, "");
   adminDb = firebaseAdmin.adminDb;
   adminAuth = firebaseAdmin.adminAuth;
   Object.defineProperty(adminDb, "collection", {
@@ -213,6 +218,35 @@ after(async () => {
   if (adminDb) adminDb.terminate?.();
   const { deleteApp, getApps } = await import("firebase-admin/app");
   await Promise.all(getApps().map((app) => deleteApp(app)));
+});
+
+test("integration Firebase configuration ignores credentials from server/.env", () => {
+  assert.equal(process.env.FIREBASE_PROJECT_ID, "demo-smart-mudi-security");
+  assert.equal(process.env.FIREBASE_AUTH_EMULATOR_HOST, "127.0.0.1:9099");
+  assert.equal(process.env.FIRESTORE_EMULATOR_HOST, "127.0.0.1:8080");
+  assert.equal(process.env.FIREBASE_SERVICE_ACCOUNT, "");
+  assert.equal(process.env.GOOGLE_APPLICATION_CREDENTIALS, "");
+});
+
+test("settings reads enforce employee permissions, password change, and shop isolation", async (t) => {
+  await t.test("employee without settings.view is denied", async () => {
+    const response = await request("employee-a-token", "/api/settings");
+    assert.equal(response.status, 403);
+  });
+
+  await t.test("employee with settings.view can read only their authenticated shop", async () => {
+    const response = await request("employee-settings-view-token", "/api/settings?shopId=shop-b", {
+      headers: { "x-shop-id": "shop-b" },
+    });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json() as any).settings.shopName, "Settings A");
+  });
+
+  await t.test("employee required to change password cannot read settings", async () => {
+    const response = await request("employee-password-change-token", "/api/settings");
+    assert.equal(response.status, 403);
+    assert.match((await response.json() as any).message, /Password change is required/);
+  });
 });
 
 test("authenticated owners resolve their own shop and employee permission remains shop-local", async (t) => {

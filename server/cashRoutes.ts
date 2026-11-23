@@ -1,11 +1,15 @@
+import { randomUUID } from "node:crypto";
 import { Router } from "express";
-import { FieldValue, Timestamp } from "firebase-admin/firestore";
+import {
+  FieldValue,
+  Timestamp,
+} from "firebase-admin/firestore";
 import { adminDb } from "./firebaseAdmin.js";
 import {
-  getTodayDhakaDateKey,
   getDhakaDayBounds,
   addDateKeyDays,
 } from "./dateUtils.js";
+import { captureCashEventTime } from "./cashEventTime.js";
 import {
   verifyUser,
   requirePermission,
@@ -13,8 +17,12 @@ import {
 } from "./authMiddleware.js";
 import { resolveShopId } from "./shopContext.js";
 import {
-  closeCashSessionInTransaction,
+  CASH_TRANSACTION_MAX_ATTEMPTS,
+  claimCashSessionCloseInTransaction,
   ensureCashSessionInTransaction,
+  finishCashSessionCloseInTransaction,
+  getCashTransactionErrorStatus,
+  releaseCashSessionCloseInTransaction,
   updateCashSessionInTransaction,
 } from "./cashSessionTransactions.js";
 
@@ -65,48 +73,51 @@ function mapSession(
   };
 }
 
-async function computeCashTotals(dateStr: string, sid: string) {
+type CashTotals = {
+  cashSales: number;
+  cashDueCollected: number;
+  cashExpenses: number;
+  cashSupplierPaid: number;
+};
+
+async function computeCashTotals(
+  dateStr: string,
+  sid: string,
+): Promise<CashTotals> {
   const { start, end } = getDhakaDayBounds(dateStr);
   const startTs = Timestamp.fromDate(start);
   const endTs = Timestamp.fromDate(end);
-  // All essential queries must succeed.
-  // Never return partial or misleading cash totals.
-  const [salesSnap, dueSnap, expSnap, paySnap, purchSnap] = await Promise.all([
+  const queries = [
     adminDb
       .collection("sales")
       .where("shopId", "==", sid)
       .where("createdAt", ">=", startTs)
-      .where("createdAt", "<=", endTs)
-      .get(),
-
+      .where("createdAt", "<=", endTs),
     adminDb
       .collection("dueCollections")
       .where("shopId", "==", sid)
       .where("createdAt", ">=", startTs)
-      .where("createdAt", "<=", endTs)
-      .get(),
-
+      .where("createdAt", "<=", endTs),
     adminDb
       .collection("expenses")
       .where("shopId", "==", sid)
       .where("createdAt", ">=", startTs)
-      .where("createdAt", "<=", endTs)
-      .get(),
-
+      .where("createdAt", "<=", endTs),
     adminDb
       .collection("supplierPayments")
       .where("shopId", "==", sid)
       .where("createdAt", ">=", startTs)
-      .where("createdAt", "<=", endTs)
-      .get(),
-
+      .where("createdAt", "<=", endTs),
     adminDb
       .collection("purchases")
       .where("shopId", "==", sid)
       .where("createdAt", ">=", startTs)
-      .where("createdAt", "<=", endTs)
-      .get(),
-  ]);
+      .where("createdAt", "<=", endTs),
+  ];
+  // All essential queries must succeed.
+  // Never return partial or misleading cash totals.
+  const snapshots = await Promise.all(queries.map((query) => query.get()));
+  const [salesSnap, dueSnap, expSnap, paySnap, purchSnap] = snapshots;
 
   let cashSales = 0;
   let cashDueCollected = 0;
@@ -171,18 +182,19 @@ router.use(verifyUser);
 router.get("/today", requirePermission("cash", "view"), async (req, res) => {
   try {
     const sid = resolveShopId(req as AuthenticatedRequest);
-    const date = getTodayDhakaDateKey();
+    const date = captureCashEventTime(req).date;
     const docId = `${sid}_${date}`;
     const ref = adminDb.collection("cashSessions").doc(docId);
     const previousDate = addDateKeyDays(date, -1);
     const previousRef = adminDb.collection("cashSessions").doc(`${sid}_${previousDate}`);
-    const stored = await adminDb.runTransaction((tx) =>
-      ensureCashSessionInTransaction(tx, ref, previousRef, {
+    const stored = await adminDb.runTransaction(
+      (tx) => ensureCashSessionInTransaction(tx, ref, previousRef, {
         shopId: sid,
         date,
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       }),
+      { maxAttempts: CASH_TRANSACTION_MAX_ATTEMPTS },
     );
 
     const computed = await computeCashTotals(date, sid);
@@ -206,7 +218,7 @@ router.patch(
   async (req, res) => {
     try {
       const sid = resolveShopId(req as AuthenticatedRequest);
-      const date = getTodayDhakaDateKey();
+      const date = captureCashEventTime(req).date;
       const docId = `${sid}_${date}`;
       const ref = adminDb.collection("cashSessions").doc(docId);
 
@@ -246,8 +258,9 @@ router.patch(
         }
       }
 
-      const outcome = await adminDb.runTransaction((tx) =>
-        updateCashSessionInTransaction(tx, ref, updates),
+      const outcome = await adminDb.runTransaction(
+        (tx) => updateCashSessionInTransaction(tx, ref, updates),
+        { maxAttempts: CASH_TRANSACTION_MAX_ATTEMPTS },
       );
       if (outcome.closed) {
         return res.status(400).json({
@@ -264,10 +277,13 @@ router.patch(
         session: mapSession(date, outcome.session || {}, computed),
       });
     } catch (error) {
-      console.error("Update cash session failed:", error);
-      return res.status(500).json({
+      const status = getCashTransactionErrorStatus(error);
+      if (status !== 409) console.error("Update cash session failed:", error);
+      return res.status(status).json({
         success: false,
-        message: "Unable to update cash session.",
+        message: status === 409
+          ? "Cash session changed during this update. Please retry."
+          : "Unable to update cash session.",
       });
     }
   },
@@ -281,7 +297,7 @@ router.post(
     try {
       const authReq = req as AuthenticatedRequest;
       const sid = resolveShopId(authReq);
-      const date = getTodayDhakaDateKey();
+      const date = captureCashEventTime(req).date;
       const docId = `${sid}_${date}`;
       const ref = adminDb.collection("cashSessions").doc(docId);
 
@@ -293,57 +309,120 @@ router.post(
         });
       }
 
-      const computed = await computeCashTotals(date, sid);
-
       const closedBy =
         authReq.user?.displayName ||
         authReq.user?.email ||
         (authReq.user?.role === "owner" ? "Owner" : "Employee");
 
-      const outcome = await adminDb.runTransaction((tx) =>
-        closeCashSessionInTransaction(tx, ref, (stored) => {
-          const openingCash = Number(stored.openingCash) || 0;
-          const expectedClosingCash =
-            openingCash +
-            computed.cashSales +
-            computed.cashDueCollected -
-            computed.cashExpenses -
-            computed.cashSupplierPaid;
-          return {
-            shopId: sid,
-            date,
-            openingCash,
-            bKashBalance: Number(stored.bKashBalance) || 0,
-            nagadBalance: Number(stored.nagadBalance) || 0,
-            bankBalance: Number(stored.bankBalance) || 0,
-            actualClosingCash,
-            expectedClosingCash,
-            discrepancy: actualClosingCash - expectedClosingCash,
-            closedAt: FieldValue.serverTimestamp(),
-            closedBy,
-            closedByUid: authReq.user?.uid,
-            updatedAt: FieldValue.serverTimestamp(),
-            createdAt: stored.createdAt || FieldValue.serverTimestamp(),
-          };
-        }),
+      const closeId = randomUUID();
+      const closeStartedAt = Timestamp.now();
+      const claim = await adminDb.runTransaction(
+        (tx) => claimCashSessionCloseInTransaction(
+          tx,
+          ref,
+          closeId,
+          closeStartedAt,
+          { shopId: sid, date },
+        ),
+        { maxAttempts: CASH_TRANSACTION_MAX_ATTEMPTS },
       );
-      if (outcome.alreadyClosed) {
+      if (claim === "alreadyClosed") {
         return res.status(400).json({
           success: false,
           message: "Already closed for today.",
         });
       }
+      if (claim === "inProgress") {
+        return res.status(409).json({
+          success: false,
+          message: "Cash session is already closing. Please retry.",
+        });
+      }
 
-      return res.json({
-        success: true,
-        message: "Cash session closed.",
-        session: mapSession(date, outcome.session || {}, computed),
-      });
+      try {
+        const computed = await computeCashTotals(date, sid);
+        const outcome = await adminDb.runTransaction(
+          (tx) => finishCashSessionCloseInTransaction(
+            tx,
+            ref,
+            closeId,
+            Timestamp.now(),
+            (current) => {
+              const openingCash = Number(current.openingCash) || 0;
+              const expectedClosingCash =
+                openingCash +
+                computed.cashSales +
+                computed.cashDueCollected -
+                computed.cashExpenses -
+                computed.cashSupplierPaid;
+              return {
+                shopId: sid,
+                date,
+                openingCash,
+                bKashBalance: Number(current.bKashBalance) || 0,
+                nagadBalance: Number(current.nagadBalance) || 0,
+                bankBalance: Number(current.bankBalance) || 0,
+                actualClosingCash,
+                expectedClosingCash,
+                discrepancy: actualClosingCash - expectedClosingCash,
+                closedAt: FieldValue.serverTimestamp(),
+                closedBy,
+                closedByUid: authReq.user?.uid,
+                updatedAt: FieldValue.serverTimestamp(),
+                createdAt: current.createdAt || FieldValue.serverTimestamp(),
+              };
+            },
+          ),
+          { maxAttempts: CASH_TRANSACTION_MAX_ATTEMPTS },
+        );
+        if (outcome.alreadyClosed) {
+          return res.status(400).json({
+            success: false,
+            message: "Already closed for today.",
+          });
+        }
+        if (outcome.conflict) {
+          try {
+            await adminDb.runTransaction(
+              (tx) => releaseCashSessionCloseInTransaction(tx, ref, closeId),
+              { maxAttempts: CASH_TRANSACTION_MAX_ATTEMPTS },
+            );
+          } catch (releaseError) {
+            console.error("Release expired cash closing claim failed:", releaseError);
+          }
+          return res.status(409).json({
+            success: false,
+            message: "Cash session changed during closing. Please retry.",
+          });
+        }
+        if (!outcome.session) {
+          throw new Error("Cash close did not return its committed session.");
+        }
+
+        return res.json({
+          success: true,
+          message: "Cash session closed.",
+          session: mapSession(date, outcome.session, computed),
+        });
+      } catch (error) {
+        try {
+          await adminDb.runTransaction(
+            (tx) => releaseCashSessionCloseInTransaction(tx, ref, closeId),
+            { maxAttempts: CASH_TRANSACTION_MAX_ATTEMPTS },
+          );
+        } catch (releaseError) {
+          console.error("Release cash closing lock failed:", releaseError);
+        }
+        throw error;
+      }
     } catch (error) {
-      console.error("Close cash session failed:", error);
-      return res.status(500).json({
+      const status = getCashTransactionErrorStatus(error);
+      if (status !== 409) console.error("Close cash session failed:", error);
+      return res.status(status).json({
         success: false,
-        message: "Unable to close cash session.",
+        message: status === 409
+          ? "Cash session changed during closing. Please retry."
+          : "Unable to close cash session.",
       });
     }
   },

@@ -1,12 +1,19 @@
 import { Router } from "express";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "./firebaseAdmin.js";
+import { addDateKeyDays } from "./dateUtils.js";
+import { captureCashEventTime } from "./cashEventTime.js";
 import {
   verifyUser,
   requirePermission,
   type AuthenticatedRequest,
 } from "./authMiddleware.js";
 import { resolveShopId } from "./shopContext.js";
+import {
+  CASH_TRANSACTION_MAX_ATTEMPTS,
+  getCashTransactionErrorStatus,
+  recordCashActivityInTransaction,
+} from "./cashSessionTransactions.js";
 
 const router = Router();
 
@@ -113,6 +120,7 @@ router.get("/", requirePermission("pos", "view"), async (req, res) => {
 router.post("/", requirePermission("pos", "manage"), async (req, res) => {
   try {
     const authReq = req as AuthenticatedRequest;
+    const cashEventTime = captureCashEventTime(req);
     const body = req.body || {};
     const sid = resolveShopId(authReq);
 
@@ -205,6 +213,12 @@ router.post("/", requirePermission("pos", "manage"), async (req, res) => {
 
     const saleRef = adminDb.collection("sales").doc();
     const includeCost = authReq.user?.role === "owner";
+    const cashDate = cashEventTime.date;
+    const cashSessions = adminDb.collection("cashSessions");
+    const cashSessionRef = cashSessions.doc(`${sid}_${cashDate}`);
+    const previousCashSessionRef = cashSessions.doc(
+      `${sid}_${addDateKeyDays(cashDate, -1)}`,
+    );
 
     const result = await adminDb.runTransaction(async (tx) => {
       const productSnaps = await Promise.all(
@@ -366,8 +380,24 @@ router.post("/", requirePermission("pos", "manage"), async (req, res) => {
         soldByUid: authReq.user?.uid,
         cogsTotal,
         grossProfit,
-        createdAt: FieldValue.serverTimestamp(),
+        createdAt: paymentMethod === "নগদ (Cash)"
+          ? cashEventTime.timestamp
+          : FieldValue.serverTimestamp(),
       };
+
+      if (paymentMethod === "নগদ (Cash)") {
+        await recordCashActivityInTransaction(
+          tx,
+          cashSessionRef,
+          previousCashSessionRef,
+          {
+            shopId: sid,
+            date: cashDate,
+            createdAt: cashEventTime.timestamp,
+            updatedAt: cashEventTime.timestamp,
+          },
+        );
+      }
 
       for (const update of stockUpdates) {
         tx.update(update.ref, {
@@ -399,7 +429,7 @@ router.post("/", requirePermission("pos", "manage"), async (req, res) => {
           quantitySold: item.quantity,
         })),
       };
-    });
+    }, { maxAttempts: CASH_TRANSACTION_MAX_ATTEMPTS });
 
     const updatedProducts: {
       id: string;
@@ -420,6 +450,13 @@ router.post("/", requirePermission("pos", "manage"), async (req, res) => {
       }
     }
 
+    const responseCreatedAt = paymentMethod === "নগদ (Cash)"
+      ? cashEventTime.timestamp
+      : (await saleRef.get()).data()?.createdAt;
+    if (typeof responseCreatedAt?.toDate !== "function") {
+      throw new Error("Committed sale timestamp is unavailable.");
+    }
+
     return res.status(201).json({
       success: true,
       message: "Sale completed successfully.",
@@ -427,18 +464,20 @@ router.post("/", requirePermission("pos", "manage"), async (req, res) => {
         saleRef.id,
         {
           ...result.saleDoc,
-          createdAt: new Date(),
+          createdAt: responseCreatedAt,
         },
         includeCost,
       ),
       updatedProducts,
     });
   } catch (error: any) {
-    console.error("Create sale failed:", error);
-
-    return res.status(error?.status || 500).json({
+    const status = getCashTransactionErrorStatus(error);
+    if (status !== 409) console.error("Create sale failed:", error);
+    return res.status(status).json({
       success: false,
-      message: error?.message || "Unable to complete sale.",
+      message: status === 409
+        ? error?.message || "Cash session changed. Please retry."
+        : error?.message || "Unable to complete sale.",
     });
   }
 });
