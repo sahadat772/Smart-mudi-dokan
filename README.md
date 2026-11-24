@@ -199,3 +199,11 @@ Prioritize from customer evidence: export/backup, PWA/offline, SMS/email/push, c
 - Added proposed PR workflow on branch codex/w0-ci-baseline: Node 22, Java 21, npm ci, lint, 24 unit tests, 48 API integration tests, Firebase Emulator security tests using firebase-tools 15.37.0, and production build. Awaiting GitHub Actions run before treating CI as established.
 - F: local checkout was not modified. GitHub README and workflow changes are on a review branch; current local checkout is now behind README commits on origin/main.
 - Next: inspect PR checks; resolve any CI/Emulator failures; then merge only after checks pass. Keep large-bundle optimization and staging cross-shop manual check in W0/W1 follow-up.
+
+
+### 2026-11-24 — CI run 1 completed
+- PR #3 checks all passed: lint, 24 security unit tests, 48 cross-shop API integration tests, Firebase Emulator 51/51, and production build.
+- Evidence: GitHub Actions run 45356991931, commit 3560da9b0ee1c1ec2b68d99c0aff81fd4496f133. Emulator startup works in GitHub Actions; the local hang was environment-specific.
+- CI is currently proposed on PR #3 and is not yet on main; repository main has no enforced required-check rule verified here.
+- Build warnings remain: Vite config uses __dirname (native-loader future compatibility warning) and main JS chunk is about 1.34 MB. Workflow actions v4 also emitted Node 20 deprecation notices. Track these as CI/build maintenance after review.
+- Next: review and approve PR #3 merge; then begin W1 staging cross-shop manual verification. No production deploy was triggered by this PR.
