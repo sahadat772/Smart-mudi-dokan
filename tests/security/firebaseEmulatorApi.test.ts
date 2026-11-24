@@ -69,13 +69,13 @@ function runFirebaseAdminBootstrap(
   }
 }
 
-async function signIn(email: string) {
+async function signIn(email: string, password = PASSWORD) {
   const response = await fetch(
     `http://${AUTH_HOST}/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=emulator-api-key`,
     {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email, password: PASSWORD, returnSecureToken: true }),
+      body: JSON.stringify({ email, password, returnSecureToken: true }),
     },
   );
   const body = await response.json() as { idToken?: string; error?: { message?: string } };
@@ -111,7 +111,6 @@ async function createOwner(label: string, options: {
     role: "owner",
     shopId,
     active: true,
-    mustChangePassword: false,
     permissions: {},
     displayName: `Owner ${label}`,
   });
@@ -791,17 +790,39 @@ test("real Auth Emulator rejects revoked and disabled ID tokens through Express 
   });
 });
 
-test("first-login employees cannot access permission-protected business APIs", async () => {
-  const owner = await createOwner("first-login");
-  const employee = await createEmployee("first-login-employee", owner.shopId, {
+test("legacy password-change flags do not block permitted business APIs", async () => {
+  const owner = await createOwner("legacy-password-flag");
+  const employee = await createEmployee("legacy-password-flag-employee", owner.shopId, {
     mustChangePassword: true,
     permissions: { products: { view: true, manage: false } },
   });
 
   const response = await apiRequest(employee.token, "/api/products");
-  assert.equal(response.status, 403);
-  const body = await response.json() as { message?: string };
-  assert.match(body.message || "", /Password change is required/);
+  assert.equal(response.status, 200);
+});
+
+test("new staff can use their assigned password immediately", async () => {
+  const owner = await createOwner("new-staff-password");
+  const email = `staff-${randomUUID()}@example.test`;
+  const password = "Assigned-Staff-Password-123!";
+  const createResponse = await apiRequest(owner.token, "/api/staff", {
+    method: "POST",
+    body: { name: "New Staff", email, password, role: "cashier" },
+  });
+  assert.equal(createResponse.status, 201);
+
+  const createBody = await createResponse.json() as {
+    employee: { uid: string };
+  };
+  const userRef = adminDb.collection("users").doc(createBody.employee.uid);
+  cleanupRefs.push(userRef);
+  createdUsers.push(createBody.employee.uid);
+  const profile = await userRef.get();
+  assert.equal(profile.data()?.mustChangePassword, false);
+
+  const staffToken = await signIn(email, password);
+  const productsResponse = await apiRequest(staffToken, "/api/products");
+  assert.equal(productsResponse.status, 200);
 });
 
 test("expired and suspended subscriptions reject real API writes", async (t) => {

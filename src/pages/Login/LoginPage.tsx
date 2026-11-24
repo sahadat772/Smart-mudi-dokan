@@ -19,12 +19,10 @@ import {
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "../../firebase";
 import { UserRole } from "../../types";
-
-const API_BASE =
-  (import.meta as any).env?.VITE_API_BASE_URL?.replace(/\/$/, "") || "";
+import { apiUrl } from "../../api/client";
 
 interface LoginPageProps {
-  onLoginSuccess: (user: User, role: UserRole, mustChangePassword: boolean) => void;
+  onLoginSuccess: (user: User, role: UserRole) => void;
   currentRole: UserRole;
 }
 
@@ -102,7 +100,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
       onLoginSuccess(
         user,
         userData.role as UserRole,
-        userData.role === "employee" && userData.mustChangePassword === true,
       );
     } catch (err: any) {
       setError(getErrorMessage(err.code) + ` (${err.code || "unknown-error"})`);
@@ -136,8 +133,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     setIsLoading(true);
 
     try {
-      const base = API_BASE || window.location.origin;
-      const res = await fetch(`${base}/api/shops/register`, {
+      const res = await fetch(apiUrl("/api/shops/register"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

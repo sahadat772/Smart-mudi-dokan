@@ -11,7 +11,7 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      // Users may read only their own profile (role, permissions, mustChangePassword).
+      // Users may read only their own profile (role and permissions).
       allow read: if isSelf(userId);
       allow write: if false;
     }

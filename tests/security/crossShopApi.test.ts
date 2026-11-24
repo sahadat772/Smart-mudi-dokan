@@ -24,7 +24,6 @@ const userProfile = (
   role,
   shopId,
   active: true,
-  mustChangePassword: false,
   permissions,
 });
 
@@ -39,6 +38,7 @@ function seedFixtures() {
   const grantsA = permissions(["dashboard", "pos", "products", "customers", "purchases", "expenses", "cash", "reports", "staff", "settings"]);
   const staffGrants = permissions(["dashboard", "pos", "products", "customers"]);
   const settingsViewGrants = permissions(["settings"]);
+  const passwordManagementGrants = permissions(["products", "settings:manage"]);
 
   database.seed("shops", "shop-a", { id: "shop-a", name: "Shop A", ownerUid: "owner-a", plan: "pro", status: "active" });
   database.seed("shops", "shop-b", { id: "shop-b", name: "Shop B", ownerUid: "owner-b", plan: "pro", status: "active" });
@@ -48,7 +48,7 @@ function seedFixtures() {
   database.seed("users", "employee-b", userProfile("employee-b", "employee", "shop-b", staffGrants));
   database.seed("users", "employee-settings-view", userProfile("employee-settings-view", "employee", "shop-a", settingsViewGrants));
   database.seed("users", "employee-password-change", {
-    ...userProfile("employee-password-change", "employee", "shop-a", settingsViewGrants),
+    ...userProfile("employee-password-change", "employee", "shop-a", passwordManagementGrants),
     mustChangePassword: true,
   });
 
@@ -135,7 +135,13 @@ function seedFixtures() {
     ["owner-a-claim-employee", "owner-a", "employee", "shop-a"],
     ["missing-shop-token", "missing-shop-user", "employee", ""],
   ]) {
-    tokenClaims.set(token, { uid, email: `${uid}@test.invalid`, role, ...(shopId ? { shopId } : {}) });
+    tokenClaims.set(token, {
+      uid,
+      email: `${uid}@test.invalid`,
+      role,
+      auth_time: Math.floor(Date.now() / 1000),
+      ...(shopId ? { shopId } : {}),
+    });
   }
   database.seed("users", "missing-shop-user", userProfile("missing-shop-user", "employee", ""));
 }
@@ -230,7 +236,7 @@ test("test environment keeps Firebase credentials unset during initialization", 
   assert.equal(process.env.GOOGLE_APPLICATION_CREDENTIALS, "");
 });
 
-test("settings reads enforce employee permissions, password change, and shop isolation", async (t) => {
+test("settings and password changes enforce employee permissions and shop isolation", async (t) => {
   await t.test("employee without settings.view is denied", async () => {
     const response = await request("employee-a-token", "/api/settings");
     assert.equal(response.status, 403);
@@ -244,11 +250,69 @@ test("settings reads enforce employee permissions, password change, and shop iso
     assert.equal((await response.json() as any).settings.shopName, "Settings A");
   });
 
-  await t.test("employee required to change password cannot read settings", async () => {
-    const response = await request("employee-password-change-token", "/api/settings");
-    assert.equal(response.status, 403);
-    assert.match((await response.json() as any).message, /Password change is required/);
+  await t.test("legacy password-change flag does not block permitted requests", async () => {
+    const response = await request("employee-password-change-token", "/api/products");
+    assert.equal(response.status, 200);
   });
+});
+
+test("self-service password changes require permission and update only the caller", async (t) => {
+  const updates: Array<{ uid: string; password?: string }> = [];
+  const originalUpdateUser = adminAuth.updateUser;
+  adminAuth.updateUser = async (uid: string, update: { password?: string }) => {
+    updates.push({ uid, password: update.password });
+    return { uid };
+  };
+
+  try {
+    await t.test("settings.view alone cannot change a password", async () => {
+      const response = await request(
+        "employee-settings-view-token",
+        "/api/staff/me/password",
+        {
+          method: "POST",
+          body: { newPassword: "Replacement-password-123", uid: "owner-b" },
+        },
+      );
+      assert.equal(response.status, 403);
+      assert.equal(updates.length, 0);
+    });
+
+    await t.test("settings.manage changes only the authenticated employee password", async () => {
+      const response = await request(
+        "employee-password-change-token",
+        "/api/staff/me/password",
+        {
+          method: "POST",
+          body: { newPassword: "Replacement-password-123", uid: "owner-b" },
+        },
+      );
+      assert.equal(response.status, 200);
+      assert.deepEqual(updates, [{
+        uid: "employee-password-change",
+        password: "Replacement-password-123",
+      }]);
+    });
+
+    await t.test("stale authentication must be refreshed before a password change", async () => {
+      const claims = tokenClaims.get("employee-password-change-token")!;
+      tokenClaims.set("employee-password-change-token", { ...claims, auth_time: 0 });
+      try {
+        const response = await request(
+          "employee-password-change-token",
+          "/api/staff/me/password",
+          { method: "POST", body: { newPassword: "Replacement-password-456" } },
+        );
+        assert.equal(response.status, 401);
+        assert.equal((await response.json() as any).code, "reauthentication_required");
+        assert.equal(updates.length, 1);
+      } finally {
+        tokenClaims.set("employee-password-change-token", claims);
+      }
+    });
+  } finally {
+    adminAuth.updateUser = originalUpdateUser;
+  }
 });
 
 test("authenticated owners resolve their own shop and employee permission remains shop-local", async (t) => {

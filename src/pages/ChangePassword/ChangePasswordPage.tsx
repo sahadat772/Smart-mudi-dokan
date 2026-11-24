@@ -5,9 +5,13 @@ import {
   EyeOff,
   KeyRound,
   CheckCircle2,
-  AlertCircle,
 } from "lucide-react";
 import { auth } from "../../firebase";
+import {
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+} from "firebase/auth";
+import { apiFetch } from "../../api/client";
 
 interface ChangePasswordPageProps {
   onPasswordChanged: () => void;
@@ -16,6 +20,7 @@ interface ChangePasswordPageProps {
 export const ChangePasswordPage: React.FC<ChangePasswordPageProps> = ({
   onPasswordChanged,
 }) => {
+  const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -44,29 +49,23 @@ export const ChangePasswordPage: React.FC<ChangePasswordPageProps> = ({
       return;
     }
 
+    if (!user.email || !currentPassword) {
+      setError("বর্তমান পাসওয়ার্ড দিয়ে পুনরায় যাচাই করুন।");
+      return;
+    }
+
     setIsLoading(true);
 
     try {
-      const idToken = await user.getIdToken();
-
-      const response = await fetch("/api/staff/complete-first-login", {
+      const credential = EmailAuthProvider.credential(user.email, currentPassword);
+      await reauthenticateWithCredential(user, credential);
+      await user.getIdToken(true);
+      await apiFetch("/api/staff/me/password", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${idToken}`,
-        },
         body: JSON.stringify({ newPassword }),
       });
 
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
-        throw new Error(result.message || "Password পরিবর্তন করা যায়নি।");
-      }
-
-      // Force refresh so subsequent API calls use an up-to-date token/session.
-      await user.getIdToken(true);
-
+      setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
 
@@ -90,21 +89,14 @@ export const ChangePasswordPage: React.FC<ChangePasswordPageProps> = ({
             <KeyRound className="w-6 h-6" />
           </div>
 
-          <h2 className="text-xl font-bold">নতুন পাসওয়ার্ড সেট করুন</h2>
+          <h2 className="text-xl font-bold">পাসওয়ার্ড পরিবর্তন</h2>
 
           <p className="text-xs text-slate-300 mt-2">
-            নিরাপত্তার জন্য প্রথম লগইনে পাসওয়ার্ড পরিবর্তন বাধ্যতামূলক।
+            বর্তমান পাসওয়ার্ড যাচাই করে নিজের অ্যাকাউন্টের পাসওয়ার্ড পরিবর্তন করুন।
           </p>
         </div>
 
         <div className="p-6">
-          <div className="flex items-start gap-2 p-3 mb-5 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <p>
-              নতুন পাসওয়ার্ড সেট না করা পর্যন্ত Dashboard ব্যবহার করা যাবে না।
-            </p>
-          </div>
-
           {error && (
             <div className="p-3 mb-4 rounded-lg bg-rose-50 border border-rose-200 text-xs text-rose-800">
               {error}
@@ -112,6 +104,19 @@ export const ChangePasswordPage: React.FC<ChangePasswordPageProps> = ({
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">
+                বর্তমান পাসওয়ার্ড
+              </label>
+              <input
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                className="w-full px-3 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                autoComplete="current-password"
+                required
+              />
+            </div>
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">
                 নতুন পাসওয়ার্ড

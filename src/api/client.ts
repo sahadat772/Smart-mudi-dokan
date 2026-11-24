@@ -1,5 +1,14 @@
 import { auth } from "../firebase";
 
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+
+export function apiUrl(path: string) {
+  if (import.meta.env.PROD && !API_BASE) {
+    throw new Error("VITE_API_BASE_URL must point to the Render API in production.");
+  }
+  return `${API_BASE}${path}`;
+}
+
 export async function apiFetch<T = any>(
   path: string,
   options: RequestInit = {},
@@ -11,10 +20,8 @@ export async function apiFetch<T = any>(
   }
 
   const idToken = await currentUser.getIdToken();
-  const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 
-// fetch-এ:
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await fetch(apiUrl(path), {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -22,7 +29,6 @@ export async function apiFetch<T = any>(
       ...(options.headers || {}),
     },
   });
-  
 
   let data: any = null;
   try {

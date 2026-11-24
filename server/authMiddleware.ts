@@ -34,7 +34,7 @@ export interface AuthUser {
   role: "owner" | "employee";
   shopId?: string;
   active: boolean;
-  mustChangePassword: boolean;
+  authTime: number;
   permissions: Partial<PermissionSet>;
   displayName?: string;
 }
@@ -43,7 +43,11 @@ export interface AuthenticatedRequest extends Request {
   user?: AuthUser;
 }
 
-async function loadAuthUser(uid: string, email?: string): Promise<AuthUser | null> {
+async function loadAuthUser(
+  uid: string,
+  email: string | undefined,
+  authTime: number,
+): Promise<AuthUser | null> {
   const userSnap = await adminDb.collection("users").doc(uid).get();
 
   if (!userSnap.exists) {
@@ -70,7 +74,7 @@ async function loadAuthUser(uid: string, email?: string): Promise<AuthUser | nul
         ? data.shopId.trim()
         : undefined,
     active: true,
-    mustChangePassword: data.mustChangePassword === true,
+    authTime,
     permissions: (data.permissions as Partial<PermissionSet>) || {},
     displayName: data.displayName,
   };
@@ -102,7 +106,11 @@ export async function verifyUser(
     }
 
     const decodedToken = await adminAuth.verifyIdToken(idToken, true);
-    const authUser = await loadAuthUser(decodedToken.uid, decodedToken.email);
+    const authUser = await loadAuthUser(
+      decodedToken.uid,
+      decodedToken.email,
+      decodedToken.auth_time,
+    );
 
     if (!authUser) {
       return res.status(403).json({
@@ -301,13 +309,6 @@ export function requirePermission(
 
     if (user.role === "owner") {
       return next();
-    }
-
-    if (user.mustChangePassword) {
-      return res.status(403).json({
-        success: false,
-        message: "Password change is required before continuing.",
-      });
     }
 
     const permission = user.permissions?.[module];

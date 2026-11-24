@@ -19,7 +19,6 @@ router.get("/me", verifyUser, async (req: AuthenticatedRequest, res) => {
       shopId: user.shopId,
       displayName: user.displayName,
       active: user.active,
-      mustChangePassword: user.mustChangePassword,
       permissions: user.permissions,
     },
   });
@@ -79,7 +78,6 @@ router.post("/bootstrap-owner", async (req, res) => {
         role: "owner",
         shopId: sid,
         active: true,
-        mustChangePassword: false,
         permissions: {},
         createdAt: FieldValue.serverTimestamp(),
         lastLoginAt: null,
@@ -90,7 +88,6 @@ router.post("/bootstrap-owner", async (req, res) => {
           role: "owner",
           shopId: sid,
           active: true,
-          mustChangePassword: false,
           email: authUser.email || existing.data()?.email || "",
           displayName:
             authUser.displayName ||

@@ -65,7 +65,7 @@ npm.cmd run test:security:emulator
 - Cross-shop reads and direct writes are isolated to the authenticated tenant.
 - A request-body `shopId` cannot redirect a product write into another shop.
 - Revoked refresh tokens and disabled Auth Emulator users are rejected by authentication middleware.
-- Employees marked `mustChangePassword` cannot use a permission-protected business route.
+- Legacy `mustChangePassword` profile flags do not block otherwise authorized requests.
 - Expired trials and suspended shops cannot perform protected writes.
 - A concurrent cash-session update/close sequence leaves the session closed and prevents later updates.
 - Emulator startup rejects production credential environment variables.

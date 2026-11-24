@@ -4,6 +4,7 @@ import { adminAuth, adminDb } from "./firebaseAdmin.js";
 import {
   verifyOwner,
   verifyUser,
+  requirePermission,
   type AuthenticatedRequest,
 } from "./authMiddleware.js";
 import { resolveShopId } from "./shopContext.js";
@@ -187,7 +188,6 @@ router.get("/", verifyOwner, async (req, res) => {
           email: data.email || "",
           jobRole: data.jobRole || "custom",
           active: data.active === true,
-          mustChangePassword: data.mustChangePassword === true,
           shopId,
           permissions: data.permissions || emptyPermissions(),
           lastLoginAt: formatLastLogin(data.lastLoginAt),
@@ -331,7 +331,7 @@ router.post("/", verifyOwner, async (req, res) => {
       jobRole: role,
       shopId: sid,
       active: true,
-      mustChangePassword: true,
+      mustChangePassword: false,
       permissions: finalPermissions,
       createdAt: FieldValue.serverTimestamp(),
       lastLoginAt: null,
@@ -346,7 +346,6 @@ router.post("/", verifyOwner, async (req, res) => {
         email: normalizedEmail,
         jobRole: role,
         active: true,
-        mustChangePassword: true,
         permissions: finalPermissions,
       },
     });
@@ -508,12 +507,26 @@ router.patch("/:uid/permissions", verifyOwner, async (req, res) => {
 });
 
 router.post(
-  "/complete-first-login",
+  "/me/password",
   verifyUser,
+  requirePermission("settings", "manage"),
   async (req: AuthenticatedRequest, res) => {
     try {
       const uid = req.user!.uid;
-      const { newPassword } = req.body;
+      const newPassword = req.body?.newPassword;
+
+      const authenticationAge = Date.now() / 1000 - req.user!.authTime;
+      if (
+        !Number.isFinite(authenticationAge) ||
+        authenticationAge < -30 ||
+        authenticationAge > 300
+      ) {
+        return res.status(401).json({
+          success: false,
+          code: "reauthentication_required",
+          message: "Please reauthenticate before changing your password.",
+        });
+      }
 
       if (
         typeof newPassword !== "string" ||
@@ -526,36 +539,8 @@ router.post(
         });
       }
 
-      const userRef = adminDb.collection("users").doc(uid);
-      const userSnap = await userRef.get();
-
-      if (!userSnap.exists) {
-        return res.status(404).json({
-          success: false,
-          message: "User profile not found.",
-        });
-      }
-
-      const userData = userSnap.data();
-
-      if (
-        userData?.role !== "employee" ||
-        userData?.active !== true ||
-        userData?.mustChangePassword !== true
-      ) {
-        return res.status(403).json({
-          success: false,
-          message: "Password change is not allowed.",
-        });
-      }
-
       await adminAuth.updateUser(uid, {
         password: newPassword,
-      });
-
-      await userRef.update({
-        mustChangePassword: false,
-        passwordChangedAt: FieldValue.serverTimestamp(),
       });
 
       return res.status(200).json({
@@ -563,7 +548,7 @@ router.post(
         message: "Password changed successfully.",
       });
     } catch (error) {
-      console.error("First login password change failed:", error);
+      console.error("Self-service password change failed:", error);
 
       return res.status(500).json({
         success: false,
