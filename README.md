@@ -207,3 +207,8 @@ Prioritize from customer evidence: export/backup, PWA/offline, SMS/email/push, c
 - CI is currently proposed on PR #3 and is not yet on main; repository main has no enforced required-check rule verified here.
 - Build warnings remain: Vite config uses __dirname (native-loader future compatibility warning) and main JS chunk is about 1.34 MB. Workflow actions v4 also emitted Node 20 deprecation notices. Track these as CI/build maintenance after review.
 - Next: review and approve PR #3 merge; then begin W1 staging cross-shop manual verification. No production deploy was triggered by this PR.
+
+
+### 2026-11-24 — CI action runtime refresh
+- Official release pages showed newer stable action majors than the v4 workflow run used. Updated checkout/setup-node to v7 and setup-java to v6 to avoid the Node 20 deprecation warning observed in the first run.
+- This workflow change starts a fresh PR check; final validation is pending that run.
