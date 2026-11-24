@@ -120,7 +120,6 @@ router.post("/register", async (req, res) => {
           role: "owner",
           shopId,
           active: true,
-          mustChangePassword: false,
           permissions: {},
           createdAt: FieldValue.serverTimestamp(),
           lastLoginAt: null,

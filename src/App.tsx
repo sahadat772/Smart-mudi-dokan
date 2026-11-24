@@ -72,7 +72,6 @@ export default function App() {
   const [displayName, setDisplayName] = useState<string | undefined>(undefined);
   const [currentPage, setCurrentPage] = useState<NavPageId>("dashboard");
   const [currentRole, setCurrentRole] = useState<UserRole | null>(null);
-  const [mustChangePassword, setMustChangePassword] = useState(false);
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [userPermissions, setUserPermissions] = useState<
     Record<string, { view: boolean; manage: boolean }>
@@ -101,7 +100,6 @@ export default function App() {
   const clearAuthState = useCallback(() => {
     setAuthUser(null);
     setCurrentRole(null);
-    setMustChangePassword(false);
     setIsPlatformAdmin(false);
     setUserPermissions({});
     setDisplayName(undefined);
@@ -228,10 +226,7 @@ export default function App() {
           clearAuthState();
           return;
         }
-        const needsPasswordChange =
-          userData.role === "employee" && userData.mustChangePassword === true;
         setCurrentRole(userData.role as UserRole);
-        setMustChangePassword(needsPasswordChange);
         setDisplayName(
           typeof userData.displayName === "string"
             ? userData.displayName
@@ -243,7 +238,7 @@ export default function App() {
             : {},
         );
         setAuthUser(user);
-        setCurrentPage(needsPasswordChange ? "change-password" : "dashboard");
+        setCurrentPage("dashboard");
       } catch (error) {
         console.error("Authentication verification failed:", error);
         await signOut(auth);
@@ -256,7 +251,7 @@ export default function App() {
   }, [clearAuthState]);
 
   useEffect(() => {
-    if (!authUser || !currentRole || mustChangePassword) return;
+    if (!authUser || !currentRole) return;
     void apiFetch<{ isPlatformAdmin: boolean }>("/api/subscriptions/admin/me")
       .then((data) => setIsPlatformAdmin(data.isPlatformAdmin === true))
       .catch(() => setIsPlatformAdmin(false));
@@ -276,7 +271,6 @@ export default function App() {
   }, [
     authUser,
     currentRole,
-    mustChangePassword,
     loadProducts,
     loadSales,
     loadCustomers,
@@ -288,6 +282,9 @@ export default function App() {
 
   const canAccessPage = (page: NavPageId): boolean => {
     if (page === "platform-admin") return isPlatformAdmin;
+    if (page === "change-password") {
+      return currentRole === "owner" || userPermissions.settings?.manage === true;
+    }
     if (currentRole === "owner") return true;
     if (
       page === "staff" ||
@@ -296,18 +293,13 @@ export default function App() {
       page === "login"
     )
       return false;
-    if (page === "change-password") return mustChangePassword;
     return userPermissions[page]?.view === true;
   };
 
   useEffect(() => {
     if (!currentRole) return;
-    if (mustChangePassword) {
-      setCurrentPage("change-password");
-      return;
-    }
     if (!canAccessPage(currentPage)) setCurrentPage("dashboard");
-  }, [currentRole, currentPage, userPermissions, mustChangePassword, isPlatformAdmin]);
+  }, [currentRole, currentPage, userPermissions, isPlatformAdmin]);
 
   const lowStockCount = products.filter(
     (p) => p.stockQuantity <= p.lowStockThreshold,
@@ -497,21 +489,9 @@ export default function App() {
     return (
       <LoginPage
         currentRole="owner"
-        onLoginSuccess={(user, role, needsPasswordChange) => {
+        onLoginSuccess={(user, role) => {
           setAuthUser(user);
           setCurrentRole(role);
-          setMustChangePassword(needsPasswordChange);
-          setCurrentPage(needsPasswordChange ? "change-password" : "dashboard");
-        }}
-      />
-    );
-  }
-
-  if (mustChangePassword && currentRole === "employee") {
-    return (
-      <ChangePasswordPage
-        onPasswordChanged={() => {
-          setMustChangePassword(false);
           setCurrentPage("dashboard");
         }}
       />
@@ -702,6 +682,12 @@ export default function App() {
                 }
               />
             )}
+            {currentPage === "change-password" &&
+              canAccessPage("change-password") && (
+                <ChangePasswordPage
+                  onPasswordChanged={() => setCurrentPage("dashboard")}
+                />
+              )}
             {currentPage === "settings" && currentRole === "owner" && (
               <SettingsPage
                 settings={shopSettings}

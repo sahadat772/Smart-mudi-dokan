@@ -16,6 +16,7 @@ import {
   Sparkles,
   CreditCard,
   ClipboardCheck,
+  KeyRound,
 } from "lucide-react";
 import { UserRole } from "../../types";
 
@@ -158,6 +159,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           ownerOnly: true,
         },
         {
+          id: "change-password",
+          label: "পাসওয়ার্ড",
+          sublabel: "নিজের অ্যাকাউন্ট সুরক্ষা",
+          icon: KeyRound,
+        },
+        {
           id: "subscription",
           label: "সাবস্ক্রিপশন",
           sublabel: "প্ল্যান ও নবায়ন",
@@ -185,6 +192,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isOwner = currentRole === "owner";
   const hasViewAccess = (pageId: NavPageId): boolean => {
     if (pageId === "platform-admin") return isPlatformAdmin;
+    if (pageId === "change-password") {
+      return isOwner || permissions?.settings?.manage === true;
+    }
     if (isOwner) return true;
     if (pageId === "staff" || pageId === "settings" || pageId === "login") {
       return false;
