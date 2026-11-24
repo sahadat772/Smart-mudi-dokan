@@ -183,3 +183,11 @@ Prioritize from customer evidence: export/backup, PWA/offline, SMS/email/push, c
 - GitHub main-এ Vercel deployment success status দেখা; full production verification নয়।
 - Snapshot, risk list, P0–P3 workflow, task queue ও official integrations research যুক্ত।
 - Next: W0 local/main baseline এবং CI evidence; তারপর W1 cross-shop staging validation.
+
+### 2026-11-24 — W0 baseline checks
+- F:/new file/smart-mudi-manager checkout main branch-এ clean; HEAD 561c8149c7be1d1e021f96da34def27eeecafda8, origin/main-এর সঙ্গে মিলেছে।
+- npm run lint: pass (tsc --noEmit).
+- npm run test:security: pass, 24/24.
+- npm run test:security:integration: pass, 48/48. কিছু denied cross-shop request server-এ expected 404 log করেছে; suite pass করেছে।
+- npm run build: verified হয়নি—Vite config bundling F: checkout-এর node_modules-এ temp file লিখতে চেয়েছে, sandbox EPERM দিয়েছে। runner loader বিকল্পটি __dirname incompatibility-তে ব্যর্থ। build বা repository source পরিবর্তিত হয়নি।
+- Emulator suite ও GitHub Actions CI এখনও চালু/প্রমাণিত নয়। Next: safe writable build/Emulator environment, তারপর W0 CI workflow.
