@@ -191,3 +191,11 @@ Prioritize from customer evidence: export/backup, PWA/offline, SMS/email/push, c
 - npm run test:security:integration: pass, 48/48. কিছু denied cross-shop request server-এ expected 404 log করেছে; suite pass করেছে।
 - npm run build: verified হয়নি—Vite config bundling F: checkout-এর node_modules-এ temp file লিখতে চেয়েছে, sandbox EPERM দিয়েছে। runner loader বিকল্পটি __dirname incompatibility-তে ব্যর্থ। build বা repository source পরিবর্তিত হয়নি।
 - Emulator suite ও GitHub Actions CI এখনও চালু/প্রমাণিত নয়। Next: safe writable build/Emulator environment, তারপর W0 CI workflow.
+
+
+### 2026-11-24 — W0 baseline follow-up and CI proposal
+- Build follow-up: normal Vite config bundling was blocked by sandbox write access to F: node_modules. Ran Vite with runner loader and a temporary __dirname shim/output under the allowed temp directory; production build passed (2,277 modules). Bundle warning: main minified JS chunk is about 1.34 MB (382 KB gzip), above the 500 KB warning threshold; code-splitting optimization remains follow-up.
+- Emulator security test was started but produced no startup/test output after about 90 seconds; interrupted, result is not verified. No pass claim.
+- Added proposed PR workflow on branch codex/w0-ci-baseline: Node 22, Java 21, npm ci, lint, 24 unit tests, 48 API integration tests, Firebase Emulator security tests using firebase-tools 15.37.0, and production build. Awaiting GitHub Actions run before treating CI as established.
+- F: local checkout was not modified. GitHub README and workflow changes are on a review branch; current local checkout is now behind README commits on origin/main.
+- Next: inspect PR checks; resolve any CI/Emulator failures; then merge only after checks pass. Keep large-bundle optimization and staging cross-shop manual check in W0/W1 follow-up.
