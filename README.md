@@ -23,7 +23,7 @@
 | Access | owner/employee roles, permissions, shop scoping; staff password re-auth endpoint | দুই shop দিয়ে cross-tenant tests; deployed backend-এ fix আছে কি না |
 | Subscription | 14-day trial, expiry guard, Basic/Pro options, manual payment review/history | backend-এ সব route-এ plan limit; sandbox/live end-to-end |
 | Tests | Emulator config/security tests repository-তে আছে বলে report | clean checkout-এ reproducible CI logs |
-| Deployment | main-এর Vercel status success | Render/Firebase live status independent check; CI ও branch protection |
+| Deployment | Vercel frontend + Render health 200 (2026-11-25); CI green on main | Branch protection enforcement; Render deploy SHA match; backup drill |
 | Notifications/AI/Admin | derived alerts, support chat/voice, payment-review-এর সীমিত admin | persistent notifications, scoped business insight, full audit trail |
 
 ### Code review থেকে follow-up risk
@@ -114,8 +114,8 @@ Prioritize from customer evidence: export/backup, PWA/offline, SMS/email/push, c
 
 | ID | Task | Priority | Done when |
 |---|---|---:|---|
-| W0 | Local/main baseline, CI, lint/build/Emulator evidence | P0 | commit-pinned green CI; rollback documented |
-| W1 | Two-shop owner/employee isolation; deployed fix check | P0 | Emulator + staging allow/deny pass |
+| W0 | Local/main baseline, CI, lint/build/Emulator evidence | P0 | **Partial:** CI green on main (`09ab272`). Branch protection + Firestore backup/restore still owner console (see `docs/W0_RELEASE_GATE.md`) |
+| W1 | Two-shop owner/employee isolation; deployed fix check | P0 | **In progress:** automated suites green; staging matrix in `docs/W1_STAGING_CROSS_SHOP.md` (owner live proof pending) |
 | W2 | Schema/data dictionary and historical shopId inventory | P0 | reviewed dry-run report and rollback plan |
 | W3 | Stock/due/supplier/cash reconciliation, cash-close race, unit validation | P0 | end-to-end ledger scenarios reconcile |
 | W4 | Registration/onboarding and backend plan limits | P1 | staging setup succeeds; limits enforced |
@@ -192,14 +192,12 @@ Prioritize from customer evidence: export/backup, PWA/offline, SMS/email/push, c
 - npm run build: verified হয়নি—Vite config bundling F: checkout-এর node_modules-এ temp file লিখতে চেয়েছে, sandbox EPERM দিয়েছে। runner loader বিকল্পটি __dirname incompatibility-তে ব্যর্থ। build বা repository source পরিবর্তিত হয়নি।
 - Emulator suite ও GitHub Actions CI এখনও চালু/প্রমাণিত নয়। Next: safe writable build/Emulator environment, তারপর W0 CI workflow.
 
-
 ### 2026-11-24 — W0 baseline follow-up and CI proposal
 - Build follow-up: normal Vite config bundling was blocked by sandbox write access to F: node_modules. Ran Vite with runner loader and a temporary __dirname shim/output under the allowed temp directory; production build passed (2,277 modules). Bundle warning: main minified JS chunk is about 1.34 MB (382 KB gzip), above the 500 KB warning threshold; code-splitting optimization remains follow-up.
 - Emulator security test was started but produced no startup/test output after about 90 seconds; interrupted, result is not verified. No pass claim.
 - Added proposed PR workflow on branch codex/w0-ci-baseline: Node 22, Java 21, npm ci, lint, 24 unit tests, 48 API integration tests, Firebase Emulator security tests using firebase-tools 15.37.0, and production build. Awaiting GitHub Actions run before treating CI as established.
 - F: local checkout was not modified. GitHub README and workflow changes are on a review branch; current local checkout is now behind README commits on origin/main.
 - Next: inspect PR checks; resolve any CI/Emulator failures; then merge only after checks pass. Keep large-bundle optimization and staging cross-shop manual check in W0/W1 follow-up.
-
 
 ### 2026-11-24 — CI run 1 completed
 - PR #3 checks all passed: lint, 24 security unit tests, 48 cross-shop API integration tests, Firebase Emulator 51/51, and production build.
@@ -208,7 +206,16 @@ Prioritize from customer evidence: export/backup, PWA/offline, SMS/email/push, c
 - Build warnings remain: Vite config uses __dirname (native-loader future compatibility warning) and main JS chunk is about 1.34 MB. Workflow actions v4 also emitted Node 20 deprecation notices. Track these as CI/build maintenance after review.
 - Next: review and approve PR #3 merge; then begin W1 staging cross-shop manual verification. No production deploy was triggered by this PR.
 
-
 ### 2026-11-24 — CI action runtime refresh
 - Official release pages showed newer stable action majors than the v4 workflow run used. Updated checkout/setup-node to v7 and setup-java to v6 to avoid the Node 20 deprecation warning observed in the first run.
 - This workflow change starts a fresh PR check; final validation is pending that run.
+
+### 2026-11-25 — W0 docs + W1 staging gate started
+- Owner submitted W0 release-gate work (branch protection / backup are console-only).
+- Added `docs/W0_RELEASE_GATE.md`: exact steps to require status check **Lint, build and security** on `main`, plus Firestore backup + isolated restore drill.
+- Added `docs/W1_STAGING_CROSS_SHOP.md`: live two-shop allow/deny matrix (Owner A/B, Employee A/B) against deployed API.
+- Automated isolation evidence already on main: 24 unit + 48 cross-shop API + Emulator security (CI run 45361609550 on `09ab272`).
+- Live health rechecked earlier: `/api/health`, `/api/firebase-health`, Vercel frontend → HTTP 200.
+- **Not claimed complete:** required-check enforcement on `main`, Firestore backup schedule, restore drill, or live cross-shop matrix pass.
+- **Owner next:** (1) finish W0 console items and note evidence, (2) run W1 matrix on staging/live with two real shops, paste Pass/Fail into Progress log.
+- **Next engineering after W1 pass:** W2 schema/data dictionary + historical shopId inventory.
